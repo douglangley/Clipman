@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "contracts": [
+    {
+      "id": "process.version",
+      "surface": "server-cli",
+      "owner": "compat-process",
+      "platforms": ["windows", "linux", "darwin"],
+      "status": "implemented"
+    },
+    {
+      "id": "process.suggest-port",
+      "surface": "server-cli",
+      "owner": "go-unit-and-differential",
+      "platforms": ["windows", "linux", "darwin"],
+      "status": "in-progress"
+    },
+    {
+      "id": "settings.sparse-no-rewrite",
+      "surface": "filesystem",
+      "owner": "go-unit-and-differential",
+      "platforms": ["windows", "linux"],
+      "status": "in-progress"
+    },
+    {
+      "id": "settings.unknown-key-preservation",
+      "surface": "filesystem",
+      "owner": "go-unit-and-differential",
+      "platforms": ["windows", "linux"],
+      "status": "in-progress"
+    },
+    {
+      "id": "process.data-root-lock",
+      "surface": "filesystem",
+      "owner": "go-unit-and-differential",
+      "platforms": ["windows", "linux", "darwin"],
+      "status": "in-progress"
+    },
+    {
+      "id": "http.health",
+      "surface": "protocol",
+      "owner": "cli-and-raw-differential",
+      "platforms": ["windows", "linux", "darwin"],
+      "status": "in-progress"
+    },
+    {
+      "id": "http.database-head-get-put",
+      "surface": "protocol",
+      "owner": "cli-and-raw-differential",
+      "platforms": ["windows", "linux", "darwin"],
+      "status": "pending"
+    },
+    {
+      "id": "filesystem.backups",
+      "surface": "filesystem",
+      "owner": "raw-differential",
+      "platforms": ["windows", "linux", "darwin"],
+      "status": "pending"
+    },
+    {
+      "id": "onboarding.connection-file",
+      "surface": "onboarding",
+      "owner": "cli-and-raw-differential",
+      "platforms": ["windows", "linux", "darwin"],
+      "status": "pending"
+    },
+    {
+      "id": "update.rollback",
+      "surface": "updater",
+      "owner": "package-sandbox",
+      "platforms": ["windows", "linux", "darwin"],
+      "status": "pending"
+    }
+  ]
+}
