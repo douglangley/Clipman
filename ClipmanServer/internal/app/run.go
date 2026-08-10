@@ -22,9 +22,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/OnjLouis/Clipman/ClipmanServer/internal/admin"
 	"github.com/OnjLouis/Clipman/ClipmanServer/internal/blobstore"
+	"github.com/OnjLouis/Clipman/ClipmanServer/internal/certificates"
 	"github.com/OnjLouis/Clipman/ClipmanServer/internal/config"
 	"github.com/OnjLouis/Clipman/ClipmanServer/internal/dataroot"
+	"github.com/OnjLouis/Clipman/ClipmanServer/internal/onboarding"
 	"github.com/OnjLouis/Clipman/ClipmanServer/internal/platform"
 )
 
@@ -114,6 +117,98 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, settings.String("AuthToken"))
 		return 0
 	}
+	if opts.createTLSCertificate {
+		hosts := append([]string{settings.String("Host"), settings.String("AdvertiseHost")}, opts.certHosts...)
+		result, certErr := certificates.Generate(configPath, hosts, opts.certIPs, opts.newCA)
+		if certErr != nil {
+			fmt.Fprintf(stderr, "Could not create the HTTPS certificate: %v\n", certErr)
+			return 1
+		}
+		settings.SetString("CaFile", result.Authority)
+		settings.SetString("CertFile", result.FullChain)
+		settings.SetString("KeyFile", result.Key)
+		if saveErr := config.Save(configPath, settings); saveErr != nil {
+			fmt.Fprintln(stderr, saveErr)
+			return 1
+		}
+		_, _, _ = onboarding.WriteConnectionFiles(configPath, settings)
+		fmt.Fprintf(stdout, "Certificate authority: %s\nServer certificate: %s\nServer certificate expires: %s\nAuthority SHA-256 fingerprint: %s\n", result.Authority, result.Certificate, result.Expires.UTC().Format(time.RFC1123), result.Fingerprint)
+		return 0
+	}
+	if opts.showCAFingerprint {
+		ca := settings.String("CaFile")
+		cert := settings.String("CertFile")
+		host := settings.String("AdvertiseHost")
+		if host == "" {
+			host = settings.String("Host")
+		}
+		fingerprint, _, inspectErr := certificates.InspectCA(ca, cert, host)
+		if inspectErr != nil {
+			fmt.Fprintf(stderr, "Could not inspect the private certificate authority: %v\n", inspectErr)
+			return 1
+		}
+		fmt.Fprintln(stdout, fingerprint)
+		return 0
+	}
+	if opts.shareCA {
+		bindHost := opts.shareHost
+		if bindHost == "" {
+			bindHost = settings.String("Host")
+		}
+		advertised := settings.String("AdvertiseHost")
+		if advertised == "" {
+			advertised = bindHost
+		}
+		shareErr := certificates.Share(context.Background(), settings.String("CaFile"), bindHost, advertised, opts.shareMinutes, func(url, fingerprint string) {
+			fmt.Fprintf(stdout, "Certificate URL: %s\nSHA-256 fingerprint: %s\nSharing stops after the first download or %d minute(s).\n", url, fingerprint, opts.shareMinutes)
+		})
+		if shareErr != nil {
+			fmt.Fprintf(stderr, "Could not share the certificate authority: %v\n", shareErr)
+			return 1
+		}
+		fmt.Fprintln(stdout, "Certificate sharing stopped: download completed or time limit reached.")
+		return 0
+	}
+	if opts.writeConnectionInfo {
+		_, connectionPath, writeErr := onboarding.WriteConnectionFiles(configPath, settings)
+		if writeErr != nil {
+			fmt.Fprintf(stderr, "Could not write the Clipman Server connection files: %v\n", writeErr)
+			return 1
+		}
+		fmt.Fprintln(stdout, connectionPath)
+		return 0
+	}
+	setupManager := &onboarding.Manager{ConfigPath: configPath}
+	if opts.createSetupLink {
+		code, state, createErr := setupManager.Create(opts.setupMinutes, opts.setupDownloads)
+		if createErr != nil {
+			fmt.Fprintf(stderr, "Could not create the temporary setup link: %v\n", createErr)
+			return 1
+		}
+		base := strings.TrimRight(settings.String("SetupBaseUrl"), "/")
+		if base == "" {
+			scheme := "http"
+			if settings.String("CertFile") != "" {
+				scheme = "https"
+			}
+			host := settings.String("AdvertiseHost")
+			if host == "" {
+				host = settings.String("Host")
+			}
+			port, _ := settings.Int("Port")
+			base = fmt.Sprintf("%s://%s:%d", scheme, host, port)
+		}
+		fmt.Fprintf(stdout, "Setup URL: %s/setup/%s\nExpires: %s\nConnection-file downloads: %d\nRevoke early with --revoke-setup-link.\n", base, code, time.UnixMilli(state.ExpiresUnixMS).UTC().Format("2006-01-02 15:04 UTC"), state.RemainingDownloads)
+		return 0
+	}
+	if opts.revokeSetupLink {
+		if setupManager.Revoke() {
+			fmt.Fprintln(stdout, "Temporary setup link revoked.")
+		} else {
+			fmt.Fprintln(stdout, "No temporary setup link is active.")
+		}
+		return 0
+	}
 	if unsupportedAction(opts) {
 		fmt.Fprintln(stderr, "This administration operation is not implemented in the Go compatibility server yet.")
 		return 1
@@ -128,6 +223,9 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		return dataRootLockExitCode
 	}
 	defer lock.Close()
+	if opts.listDatabases || opts.listDatabasesJSON || opts.deleteDatabase != "" || opts.pruneDaysSet {
+		return runDatabaseAdministration(settings, opts, stdout, stderr)
+	}
 	return runHTTP(settings, configPath, version, stdout, stderr)
 }
 
@@ -232,10 +330,77 @@ func applyOverrides(settings config.Settings, opts options) bool {
 }
 
 func unsupportedAction(opts options) bool {
-	return opts.createTLSCertificate || len(opts.certHosts) != 0 || len(opts.certIPs) != 0 || opts.newCA ||
-		opts.showCAFingerprint || opts.shareCA || opts.shareHost != "" || opts.writeConnectionInfo ||
-		opts.createSetupLink || opts.revokeSetupLink || opts.listDatabases || opts.listDatabasesJSON ||
-		opts.deleteDatabase != "" || opts.pruneDaysSet || opts.confirm || opts.forceRecent
+	return opts.shareHost != "" || len(opts.certHosts) != 0 || len(opts.certIPs) != 0 || opts.newCA
+}
+
+func runDatabaseAdministration(settings config.Settings, opts options, stdout, stderr io.Writer) int {
+	manager := admin.Manager{Root: filepath.Dir(settings.String("DatabasePath"))}
+	if opts.listDatabases || opts.listDatabasesJSON {
+		items, err := manager.List()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if opts.listDatabasesJSON {
+			data, _ := config.Marshal(map[string]any{"Databases": items})
+			_, _ = stdout.Write(data)
+			fmt.Fprintln(stdout)
+			return 0
+		}
+		if len(items) == 0 {
+			fmt.Fprintln(stdout, "No Clipman Server database buckets found.")
+			return 0
+		}
+		fmt.Fprintln(stdout, "Database buckets:")
+		for _, item := range items {
+			id := item.DatabaseID
+			if len(id) > 15 {
+				id = id[:12] + "..."
+			}
+			fmt.Fprintf(stdout, "%s  size=%d bytes  backups=%d\n", id, item.Length, item.BackupCount)
+		}
+		fmt.Fprintln(stdout, "\nUse --list-databases-json for full IDs and exact timestamps.")
+		return 0
+	}
+	if opts.deleteDatabase != "" {
+		if !opts.confirm {
+			fmt.Fprintln(stderr, "Refusing to move a database bucket without --confirm. This is intentionally not automatic.")
+			return 1
+		}
+		target, err := manager.Delete(opts.deleteDatabase, opts.forceRecent)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "Moved database bucket to %s\n", target)
+		return 0
+	}
+	items, err := manager.Stale(opts.pruneDays)
+	if err != nil {
+		fmt.Fprintln(stderr, "--prune-databases-days must be greater than zero.")
+		return 1
+	}
+	if len(items) == 0 {
+		fmt.Fprintf(stdout, "No database buckets older than %d days.\n", opts.pruneDays)
+		return 0
+	}
+	if !opts.confirm {
+		fmt.Fprintf(stdout, "Database buckets older than %d days that would be moved:\n", opts.pruneDays)
+		for _, item := range items {
+			fmt.Fprintf(stdout, "  %s  size=%d bytes\n", item.DatabaseID, item.Length)
+		}
+		fmt.Fprintln(stdout, "\nNothing was changed. Add --confirm to move these buckets to DeletedDatabases.")
+		return 0
+	}
+	for _, item := range items {
+		target, moveErr := manager.Delete(item.DatabaseID, true)
+		if moveErr != nil {
+			fmt.Fprintln(stderr, moveErr)
+			return 1
+		}
+		fmt.Fprintf(stdout, "Moved %s to %s\n", item.DatabaseID, target)
+	}
+	return 0
 }
 
 func validateSettings(settings config.Settings) error {
@@ -365,7 +530,7 @@ func runHTTP(settings config.Settings, configPath, version string, stdout, stder
 	}
 	defer listener.Close()
 	stats := newRuntimeStats()
-	handler := newHandler(settings, version, stats, store)
+	handler := newHandler(settings, configPath, version, stats, store)
 	server := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -418,8 +583,9 @@ func runHTTP(settings config.Settings, configPath, version string, stdout, stder
 	return 0
 }
 
-func newHandler(settings config.Settings, version string, stats *runtimeStats, store *blobstore.Store) http.Handler {
+func newHandler(settings config.Settings, configPath, version string, stats *runtimeStats, store *blobstore.Store) http.Handler {
 	maxBytes, _ := settings.Int("MaxDatabaseBytes")
+	setupManager := &onboarding.Manager{ConfigPath: configPath}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		path := strings.TrimRight(request.URL.Path, "/")
 		if path == "" {
@@ -440,6 +606,10 @@ func newHandler(settings config.Settings, version string, stats *runtimeStats, s
 			stats.record(request.Method, http.StatusOK, true)
 			return
 		}
+		if strings.HasPrefix(path, "/setup/") {
+			handleSetup(writer, request, path, setupManager, settings, stats)
+			return
+		}
 		if !authorized(request, settings.String("AuthToken")) {
 			writeText(writer, http.StatusUnauthorized, "Unauthorized")
 			stats.record(request.Method, http.StatusUnauthorized, false)
@@ -457,6 +627,51 @@ func newHandler(settings config.Settings, version string, stats *runtimeStats, s
 		writeText(writer, http.StatusNotFound, "Not found")
 		stats.record(request.Method, http.StatusNotFound, false)
 	})
+}
+
+func handleSetup(w http.ResponseWriter, r *http.Request, path string, manager *onboarding.Manager, settings config.Settings, stats *runtimeStats) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	download := len(parts) == 3 && parts[2] == "connection.clpconf"
+	if len(parts) < 2 || len(parts) > 3 || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
+		writeSetup(w, r, http.StatusNotFound, []byte("This temporary Clipman setup link is unavailable.\n"), "text/plain; charset=utf-8", "")
+		stats.record(r.Method, http.StatusNotFound, false)
+		return
+	}
+	state, ok := manager.Lookup(parts[1], download && r.Method == http.MethodGet)
+	if !ok {
+		writeSetup(w, r, http.StatusNotFound, []byte("This temporary Clipman setup link is unavailable.\n"), "text/plain; charset=utf-8", "")
+		stats.record(r.Method, http.StatusNotFound, false)
+		return
+	}
+	if download {
+		data, err := onboarding.ConnectionBytes(settings)
+		if err != nil {
+			writeSetup(w, r, 500, []byte("Internal server error"), "text/plain; charset=utf-8", "")
+			stats.record(r.Method, 500, false)
+			return
+		}
+		writeSetup(w, r, 200, data, "application/x-clipman-server-connection", `attachment; filename="clipman-server-connection.clpconf"`)
+	} else {
+		writeSetup(w, r, 200, onboarding.SetupPage(parts[1], state, r.UserAgent()), "text/html; charset=utf-8", "")
+	}
+	stats.record(r.Method, 200, false)
+}
+func writeSetup(w http.ResponseWriter, r *http.Request, status int, data []byte, contentType, disposition string) {
+	h := w.Header()
+	h.Set("Content-Type", contentType)
+	h.Set("Content-Length", strconv.Itoa(len(data)))
+	h.Set("Cache-Control", "no-store, max-age=0")
+	h.Set("Pragma", "no-cache")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	if disposition != "" {
+		h.Set("Content-Disposition", disposition)
+	}
+	w.WriteHeader(status)
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(data)
+	}
 }
 
 func handleDatabase(w http.ResponseWriter, r *http.Request, store *blobstore.Store, id string, maxBytes int64, stats *runtimeStats) {

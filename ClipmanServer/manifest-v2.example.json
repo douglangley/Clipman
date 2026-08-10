@@ -1,0 +1,14 @@
+{
+  "format_version": 2,
+  "name": "Clipman Server",
+  "version": "2.6.2",
+  "artifacts": [
+    {
+      "os": "linux",
+      "architecture": "amd64",
+      "path": "linux-amd64/clipman-server",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "executable": true
+    }
+  ]
+}

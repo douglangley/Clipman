@@ -4,7 +4,7 @@ Status: In progress on branch `go-server`
 
 Revision: 2026-08-10 — CLI-driven automated compatibility testing
 
-Implementation checkpoint, 2026-08-10: phases 1 and the first phase-2 vertical slice are implemented. The Go server now provides settings/default/path handling, stable version and port output, network-safety validation, graceful shutdown, the cross-platform data-root lock, and authenticated database `HEAD`/streaming `GET`/staged conditional `PUT` with revisions, metadata, keyed locks, and backup hooks. Go unit/HTTP tests, the real CLI `init`/`put`/`list`/`sync`/`status` scenario, and an in-place Go-to-Python-to-Go dummy-data handoff pass. Remaining phase-2 work is deeper raw/concurrent/large-transfer coverage, complete runtime counters and health fidelity, backup characterization, TLS listener tests, and the full bidirectional handoff matrix.
+Implementation checkpoint, 2026-08-10: phases 1 and the primary vertical slices for phases 2–4 are implemented. In addition to authenticated database synchronization, the Go server now provides database inventory/deletion/pruning, connection files, concurrency-safe expiring setup links, native-Go private-CA and server-certificate generation/renewal/inspection, temporary public-CA sharing, and private-CA HTTPS accepted by the real CLI without system trust installation. The Go updater now provides manifest-v2 OS/architecture selection, same-version Python-to-Go migration selection, HTTPS/digest/download limits, hostile-archive defenses, verified artifact selection, service-coordinated replacement, health checks, and rollback. Remaining release-gate work includes the deeper phase-2 differential/load matrix and phase-4 integration of concrete systemd, runit, Windows, and macOS service controllers with the phase-5 packages/wrappers.
 
 Target: Rewrite the current Clipman Server 2.x implementation in Go without changing the client protocol, encrypted database format, settings, on-disk layout, or normal desktop user experience.
 
@@ -1289,6 +1289,8 @@ Exit criteria:
 
 ### Phase 3: Administration, onboarding, and certificates
 
+Implementation status: core work and automated acceptance paths implemented on `go-server`; platform wrapper presentation remains part of Phase 5.
+
 Work:
 
 - implement connection files, setup links/page, database listing/deletion/pruning, certificate inspection/generation/renewal, fingerprinting, and temporary CA sharing;
@@ -1304,6 +1306,8 @@ Exit criteria:
 - certificate operations require neither Python nor OpenSSL.
 
 ### Phase 4: Go updater and package manifests
+
+Implementation status: updater security/transaction core, standalone updater command, manifest v2, native asset selection, same-version migration selection, health rollback, and simulated service coordination are implemented. Concrete installed-service adapters and package-script integration are completed alongside Phase 5.
 
 Work:
 

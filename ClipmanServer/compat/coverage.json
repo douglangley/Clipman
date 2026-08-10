@@ -62,14 +62,14 @@
       "surface": "onboarding",
       "owner": "cli-and-raw-differential",
       "platforms": ["windows", "linux", "darwin"],
-      "status": "pending"
+      "status": "implemented"
     },
     {
       "id": "update.rollback",
       "surface": "updater",
       "owner": "package-sandbox",
       "platforms": ["windows", "linux", "darwin"],
-      "status": "pending"
+      "status": "implemented"
     }
   ]
 }
