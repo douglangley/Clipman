@@ -10,7 +10,7 @@ PORT="${CLIPMAN_PORT:-8080}"
 ADVERTISE_HOST="${CLIPMAN_ADVERTISE_HOST:-}"
 CERT_FILE="${CLIPMAN_CERT_FILE:-}"
 KEY_FILE="${CLIPMAN_KEY_FILE:-}"
-SERVER_SCRIPT="${CLIPMAN_SERVER_SCRIPT:-/app/clipman_server.py}"
+SERVER_BINARY="${CLIPMAN_SERVER_BINARY:-/usr/local/bin/clipman-server}"
 
 mkdir -p "$DATA_DIR" "$(dirname "$LOG_PATH")"
 
@@ -18,7 +18,7 @@ if [ "${CLIPMAN_SELF_SIGNED_CERT:-}" = "true" ] && [ -z "$CERT_FILE" ] && [ -z "
   GENERATED_CERT="$DATA_DIR/tls/clipman-server-fullchain.crt"
   GENERATED_KEY="$DATA_DIR/tls/clipman-server.key"
   if [ ! -f "$GENERATED_CERT" ] || [ ! -f "$GENERATED_KEY" ]; then
-    set -- "$SERVER_SCRIPT" \
+    set -- "$SERVER_BINARY" \
       --config "$CONFIG_PATH" \
       --host "$HOST" \
       --port "$PORT" \
@@ -34,7 +34,7 @@ if [ "${CLIPMAN_SELF_SIGNED_CERT:-}" = "true" ] && [ -z "$CERT_FILE" ] && [ -z "
     for address in ${CLIPMAN_CERT_IPS:-}; do
       set -- "$@" --cert-ip "$address"
     done
-    python3 "$@"
+    "$@"
   fi
   CERT_FILE="$GENERATED_CERT"
   KEY_FILE="$GENERATED_KEY"
@@ -42,7 +42,7 @@ if [ "${CLIPMAN_SELF_SIGNED_CERT:-}" = "true" ] && [ -z "$CERT_FILE" ] && [ -z "
   echo "The public CA at $DATA_DIR/tls/clipman-server-ca.crt is retained for older clients and manual recovery."
 fi
 
-set -- "$SERVER_SCRIPT" \
+set -- "$SERVER_BINARY" \
   --config "$CONFIG_PATH" \
   --host "$HOST" \
   --port "$PORT" \
@@ -74,7 +74,7 @@ case "${ADVERTISE_HOST:-$HOST}" in
     echo "Set CLIPMAN_ADVERTISE_HOST to the DNS name or IP address used by Clipman clients." >&2
     ;;
   *)
-    python3 "$@" --write-connection-info >/dev/null
+    "$@" --write-connection-info >/dev/null
     ;;
 esac
-exec python3 "$@"
+exec "$@"

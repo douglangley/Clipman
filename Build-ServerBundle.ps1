@@ -29,6 +29,7 @@ function Build-WindowsServerWrapper([string]$outputPath) {
     $version = Get-ClipmanVersion
     $assemblyVersion = if ($version -match '^\d+\.\d+\.\d+$') { "$version.0" } else { $version }
     $generatedDirectory = Split-Path -Parent $outputPath
+    $serverCore = Join-Path $generatedDirectory 'clipman-server-core.exe'
     $generatedAssemblyInfo = Join-Path $generatedDirectory 'GeneratedAssemblyInfo.cs'
     New-Item -ItemType Directory -Force -Path $generatedDirectory | Out-Null
     @(
@@ -61,12 +62,27 @@ function Build-WindowsServerWrapper([string]$outputPath) {
         'System.Web.Extensions.dll'
     ) -join ','
 
-    $serverScript = Join-Path $PSScriptRoot 'ClipmanServerLinux\clipman_server.py'
-    if (-not (Test-Path -LiteralPath $serverScript)) {
-        throw "Shared Python server script is missing: $serverScript"
+    $previousGoOS = $env:GOOS
+    $previousGoArch = $env:GOARCH
+    $previousCGO = $env:CGO_ENABLED
+    try {
+        $env:GOOS = 'windows'
+        $env:GOARCH = 'amd64'
+        $env:CGO_ENABLED = '0'
+        Push-Location (Join-Path $PSScriptRoot 'ClipmanServer')
+        try {
+            & go build -trimpath -ldflags "-s -w -X github.com/OnjLouis/Clipman/ClipmanServer/internal/buildinfo.Version=$version" -o $serverCore .\cmd\clipman-server
+            if ($LASTEXITCODE -ne 0) { throw "Windows Go server core build failed with exit code $LASTEXITCODE" }
+        }
+        finally { Pop-Location }
+    }
+    finally {
+        $env:GOOS = $previousGoOS
+        $env:GOARCH = $previousGoArch
+        $env:CGO_ENABLED = $previousCGO
     }
 
-    & $csc /nologo /target:winexe /platform:x64 /out:$outputPath /reference:$references "/resource:$serverScript,ClipmanServerWrapper.clipman_server.py" $sources
+    & $csc /nologo /target:winexe /platform:x64 /out:$outputPath /reference:$references "/resource:$serverCore,ClipmanServerWrapper.clipman-server.exe" $sources
     if ($LASTEXITCODE -ne 0) {
         throw "Windows Clipman Server wrapper build failed with exit code $LASTEXITCODE"
     }

@@ -34,7 +34,7 @@ final class ServerController: NSObject, NSApplicationDelegate {
 
     private var appBundle: Bundle { Bundle.main }
     private var resourceURL: URL { appBundle.resourceURL ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath) }
-    private var scriptURL: URL { resourceURL.appendingPathComponent("clipman_server.py") }
+    private var serverURL: URL { resourceURL.appendingPathComponent("clipman-server") }
     private var supportURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("Clipman Server", isDirectory: true)
@@ -121,22 +121,15 @@ final class ServerController: NSObject, NSApplicationDelegate {
             return
         }
 
-        guard FileManager.default.fileExists(atPath: scriptURL.path) else {
-            showAlert("clipman_server.py was not found inside Clipman Server.app.")
-            refreshMenu()
-            return
-        }
-
-        guard let python = findPython() else {
-            showAlert("Python 3 was not found. Install Python 3, then restart Clipman Server.")
+        guard FileManager.default.isExecutableFile(atPath: serverURL.path) else {
+            showAlert("The native Clipman Server core was not found inside Clipman Server.app.")
             refreshMenu()
             return
         }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: python)
+        process.executableURL = serverURL
         process.arguments = [
-            scriptURL.path,
             "--config", settingsURL.path
         ]
         process.currentDirectoryURL = resourceURL
@@ -225,7 +218,7 @@ final class ServerController: NSObject, NSApplicationDelegate {
 
     @objc private func createHTTPSCertificate() {
         showNotification("Creating the HTTPS certificate.")
-        runPythonUtility(["--create-tls-certificate"], timeout: 120) { [weak self] result in
+        runServerUtility(["--create-tls-certificate"], timeout: 120) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let output):
@@ -239,7 +232,7 @@ final class ServerController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func copyAuthorityFingerprint() {
-        runPythonUtility(["--show-ca-fingerprint"], timeout: 10) { [weak self] result in
+        runServerUtility(["--show-ca-fingerprint"], timeout: 10) { [weak self] result in
             guard let self else { return }
             switch result {
             case .failure(let error):
@@ -258,7 +251,7 @@ final class ServerController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func changeListeningPort() {
-        runPythonUtility(["--suggest-port"], timeout: 10) { [weak self] result in
+        runServerUtility(["--suggest-port"], timeout: 10) { [weak self] result in
             guard let self else { return }
             switch result {
             case .failure(let error):
@@ -286,7 +279,7 @@ final class ServerController: NSObject, NSApplicationDelegate {
                 }
 
                 self.stopServer()
-                self.runPythonUtility(["--port", String(port), "--write-connection-info"], timeout: 30) { [weak self] writeResult in
+                self.runServerUtility(["--port", String(port), "--write-connection-info"], timeout: 30) { [weak self] writeResult in
                     guard let self else { return }
                     switch writeResult {
                     case .failure(let error):
@@ -307,13 +300,9 @@ final class ServerController: NSObject, NSApplicationDelegate {
             showNotification("The certificate authority is already being shared.")
             return
         }
-        guard let python = findPython() else {
-            showAlert("Python 3 was not found.")
-            return
-        }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: python)
-        process.arguments = [scriptURL.path, "--config", settingsURL.path, "--share-ca"]
+        process.executableURL = serverURL
+        process.arguments = ["--config", settingsURL.path, "--share-ca"]
         process.currentDirectoryURL = resourceURL
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -351,15 +340,11 @@ final class ServerController: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func runPythonUtility(_ arguments: [String], timeout: TimeInterval, completion: @escaping (Result<String, Error>) -> Void) {
-        guard let python = findPython() else {
-            completion(.failure(NSError(domain: "ClipmanServer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Python 3 was not found."])))
-            return
-        }
-        DispatchQueue.global(qos: .userInitiated).async { [scriptURL, settingsURL, resourceURL] in
+    private func runServerUtility(_ arguments: [String], timeout: TimeInterval, completion: @escaping (Result<String, Error>) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [serverURL, settingsURL, resourceURL] in
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: python)
-            process.arguments = [scriptURL.path, "--config", settingsURL.path] + arguments
+            process.executableURL = serverURL
+            process.arguments = ["--config", settingsURL.path] + arguments
             process.currentDirectoryURL = resourceURL
             let outputPipe = Pipe()
             let errorPipe = Pipe()
@@ -389,7 +374,7 @@ final class ServerController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func createTemporarySetupLink() {
-        runPythonUtility(["--create-setup-link", "--setup-minutes", "30", "--setup-downloads", "5"], timeout: 30) { [weak self] result in
+        runServerUtility(["--create-setup-link", "--setup-minutes", "30", "--setup-downloads", "5"], timeout: 30) { [weak self] result in
             switch result {
             case .failure(let error):
                 self?.showAlert("Could not create the temporary setup link: \(error.localizedDescription)")
@@ -411,7 +396,7 @@ final class ServerController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func revokeTemporarySetupLink() {
-        runPythonUtility(["--revoke-setup-link"], timeout: 10) { [weak self] result in
+        runServerUtility(["--revoke-setup-link"], timeout: 10) { [weak self] result in
             switch result {
             case .failure(let error): self?.showAlert("Could not revoke the temporary setup link: \(error.localizedDescription)")
             case .success(let output): self?.showNotification(output); self?.refreshMenu()
@@ -493,15 +478,6 @@ final class ServerController: NSObject, NSApplicationDelegate {
             certificateShareProcess?.terminate()
         }
         NSApp.terminate(nil)
-    }
-
-    private func findPython() -> String? {
-        for path in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"] {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        return nil
     }
 
     private var launchAgentURL: URL {

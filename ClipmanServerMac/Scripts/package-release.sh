@@ -24,7 +24,16 @@ swiftc \
   "$SERVER_ROOT/Sources/ClipmanServer/main.swift" \
   -framework AppKit
 
-cp "$ROOT/ClipmanServerLinux/clipman_server.py" "$RESOURCES/clipman_server.py"
+GO_BUILD="$DIST/go-build"
+mkdir -p "$GO_BUILD"
+for arch in amd64 arm64; do
+  (cd "$ROOT/ClipmanServer" && CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" go build -trimpath \
+    -ldflags="-s -w -X github.com/OnjLouis/Clipman/ClipmanServer/internal/buildinfo.Version=$VERSION" \
+    -o "$GO_BUILD/clipman-server-$arch" ./cmd/clipman-server)
+done
+lipo -create "$GO_BUILD/clipman-server-amd64" "$GO_BUILD/clipman-server-arm64" -output "$RESOURCES/clipman-server"
+chmod +x "$RESOURCES/clipman-server"
+rm -rf "$GO_BUILD"
 cp "$ROOT/ClipmanServer/Manual.html" "$RESOURCES/Manual.html"
 cp "$ROOT/LICENSE.txt" "$RESOURCES/LICENSE.txt"
 

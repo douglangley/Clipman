@@ -49,7 +49,7 @@ case "$SERVICE" in
   *[!A-Za-z0-9_.@-]*|"") echo "Invalid service name: $SERVICE" >&2; exit 2 ;;
 esac
 
-for required in "$APP_DIR/clipman_server.py" "$APP_DIR/clipman_server_updater.py" "$CONFIG_FILE"; do
+for required in "$APP_DIR/clipman-server" "$APP_DIR/clipman-server-updater" "$CONFIG_FILE"; do
   if [ ! -f "$required" ]; then
     echo "Required existing server file was not found: $required" >&2
     exit 1
@@ -95,7 +95,7 @@ mv -f "$temporary_config" "$MANAGER_CONFIG"
 temporary_launcher="$LAUNCHER.new"
 cat > "$temporary_launcher" <<EOF
 #!/usr/bin/env sh
-exec python3 '$APP_DIR/clipman_server.py' --config '$CONFIG_FILE' "\$@"
+exec '$APP_DIR/clipman-server' --config '$CONFIG_FILE' "\$@"
 EOF
 chmod 755 "$temporary_launcher"
 mv -f "$temporary_launcher" "$LAUNCHER"
@@ -115,7 +115,7 @@ if [ ! -r "$MANAGER_CONFIG" ]; then
 fi
 . "$MANAGER_CONFIG"
 
-UPDATER="$CLIPMAN_SERVER_APP_DIR/clipman_server_updater.py"
+UPDATER="$CLIPMAN_SERVER_APP_DIR/clipman-server-updater"
 SERVER="$CLIPMAN_SERVER_LAUNCHER"
 SERVICE="$CLIPMAN_SERVER_SERVICE"
 SERVICE_FILE="$CLIPMAN_SERVER_SERVICE_FILE"
@@ -159,7 +159,7 @@ server_version() {
 }
 
 updater() {
-  python3 "$UPDATER" "$@" \
+  "$UPDATER" "$@" \
     --current-version "$(server_version)" \
     --app-dir "$APP_DIR" --bin-dir "$BIN_DIR" --config "$CONFIG" \
     --service-file "$SERVICE_FILE" --helper-path "$HELPER" \

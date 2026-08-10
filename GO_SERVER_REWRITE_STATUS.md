@@ -1,6 +1,6 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-10
+Last updated: 2026-08-10 (Phase 5 started)
 
 Branch: `go-server`
 
@@ -48,7 +48,9 @@ Phase 4 updater security and transaction core is implemented. Concrete systemd, 
 
 ## Recommended next action
 
-Start Phase 5 by inventorying the Windows, macOS, Linux, and container wrappers/installers. Wire them to the Go server/updater and manifest v2 while retaining the transition Python-compatible combined asset. In parallel, turn the remaining Phase 2–4 items above into shared compatibility-driver cases rather than manual checks.
+Continue Phase 5 from its first native-packaging slice. Windows now embeds/launches `clipman-server.exe`; macOS packages/launches a universal `clipman-server`; Docker is a Go multi-stage/Alpine runtime without Python or OpenSSL; and the transition bundle builds Linux amd64, arm64, and armv7 server/updater binaries with manifest v2. The Windows C# wrapper compiled locally and Go test/vet passed; Docker and macOS execution require their platform environments.
+
+Next, finish the Linux user/system helper migration: remove its remaining inline Python settings reads and legacy Python updater calls, connect native updater service adapters, and update installer tests/fixtures for native binaries. Then exercise Windows extraction/version/restart and macOS packaging on their actual platforms, build multi-architecture containers, and add package-mode update/rollback tests.
 
 Before changing files, run:
 

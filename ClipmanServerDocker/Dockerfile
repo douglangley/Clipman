@@ -1,22 +1,25 @@
-FROM python:3.11-slim
+FROM golang:1.26-alpine AS build
+
+WORKDIR /src
+COPY ClipmanServer/go.mod ClipmanServer/go.sum ./
+RUN go mod download
+COPY ClipmanServer/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/clipman-server ./cmd/clipman-server
+
+FROM alpine:3.22
 
 LABEL org.opencontainers.image.title="Clipman Server"
 LABEL org.opencontainers.image.description="Self-hosted sync server for Clipman clipboard history databases."
 LABEL org.opencontainers.image.source="https://github.com/OnjLouis/Clipman"
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
 ENV CLIPMAN_DATA_DIR=/data
 ENV CLIPMAN_HOST=0.0.0.0
 ENV CLIPMAN_PORT=8080
 
-WORKDIR /app
-COPY ClipmanServerLinux/clipman_server.py /app/clipman_server.py
+COPY --from=build /out/clipman-server /usr/local/bin/clipman-server
 COPY ClipmanServerDocker/docker-entrypoint.sh /usr/local/bin/clipman-server-entrypoint
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl \
-    && rm -rf /var/lib/apt/lists/* \
-    && chmod +x /usr/local/bin/clipman-server-entrypoint
+RUN apk add --no-cache ca-certificates \
+    && chmod +x /usr/local/bin/clipman-server /usr/local/bin/clipman-server-entrypoint
 
 VOLUME ["/data"]
 EXPOSE 8080

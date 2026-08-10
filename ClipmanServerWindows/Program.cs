@@ -17,7 +17,7 @@ namespace ClipmanServerWrapper
 {
     internal static class Program
     {
-        private const string MutexName = "Local\\ClipmanPythonServerWrapper";
+        private const string MutexName = "Local\\ClipmanServerWrapper";
 
         [STAThread]
         private static int Main(string[] args)
@@ -52,7 +52,7 @@ namespace ClipmanServerWrapper
         private const string AutomaticUpdatesValueName = "AutomaticUpdates";
         private const int BindErrorExitCode = 20;
         private readonly string appDirectory;
-        private readonly string scriptPath;
+        private readonly string serverPath;
         private readonly string settingsDirectory;
         private readonly string settingsPath;
         private readonly string logDirectory;
@@ -78,11 +78,11 @@ namespace ClipmanServerWrapper
             settingsPath = Path.Combine(settingsDirectory, "clipman-server-settings.json");
             logDirectory = Path.Combine(settingsDirectory, "logs");
             wrapperLogPath = Path.Combine(logDirectory, "clipman-server-wrapper.log");
-            scriptPath = Path.Combine(settingsDirectory, "Runtime", "clipman_server.py");
+            serverPath = Path.Combine(settingsDirectory, "Runtime", "clipman-server.exe");
 
             Directory.CreateDirectory(settingsDirectory);
             Directory.CreateDirectory(logDirectory);
-            ExtractBundledServerScript();
+            ExtractBundledServerCore();
             uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
 
             tray = new NotifyIcon
@@ -158,25 +158,17 @@ namespace ClipmanServerWrapper
             }
             stoppingServer = false;
             statusOverride = null;
-            if (!File.Exists(scriptPath))
+            if (!File.Exists(serverPath))
             {
-                tray.Text = "Clipman Server: missing script";
-                tray.ShowBalloonTip(5000, "Clipman Server", "The bundled server script could not be prepared. Open the logs folder for details.", ToolTipIcon.Error);
-                return;
-            }
-
-            var python = FindPythonLauncher();
-            if (python == null)
-            {
-                tray.Text = "Clipman Server: Python missing";
-                tray.ShowBalloonTip(5000, "Clipman Server", "Python 3 was not found. Install Python 3, then restart Clipman Server.", ToolTipIcon.Error);
+                tray.Text = "Clipman Server: missing core";
+                tray.ShowBalloonTip(5000, "Clipman Server", "The bundled native server core could not be prepared. Open the logs folder for details.", ToolTipIcon.Error);
                 return;
             }
 
             var start = new ProcessStartInfo
             {
-                FileName = python.FileName,
-                Arguments = python.ArgumentsPrefix + Quote(scriptPath) + " --config " + Quote(settingsPath),
+                FileName = serverPath,
+                Arguments = "--config " + Quote(settingsPath),
                 WorkingDirectory = appDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -302,7 +294,7 @@ namespace ClipmanServerWrapper
 
         private void ChangeListeningPort()
         {
-            var suggestion = RunPythonUtility("--suggest-port", 10000);
+            var suggestion = RunServerUtility("--suggest-port", 10000);
             int suggestedPort;
             if (!suggestion.Succeeded || !int.TryParse(suggestion.Output.Trim(), out suggestedPort))
             {
@@ -318,7 +310,7 @@ namespace ClipmanServerWrapper
                 }
 
                 StopServer();
-                var result = RunPythonUtility("--port " + dialog.SelectedPort + " --write-connection-info", 30000);
+                var result = RunServerUtility("--port " + dialog.SelectedPort + " --write-connection-info", 30000);
                 if (!result.Succeeded)
                 {
                     MessageBox.Show(result.Output, "Change Listening Port", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -342,7 +334,7 @@ namespace ClipmanServerWrapper
             tray.ShowBalloonTip(2500, "Clipman Server", "Creating the HTTPS certificate.", ToolTipIcon.Info);
             ThreadPool.QueueUserWorkItem(delegate
             {
-                var result = RunPythonUtility("--create-tls-certificate", 120000);
+                var result = RunServerUtility("--create-tls-certificate", 120000);
                 uiContext.Post(delegate
                 {
                     if (!result.Succeeded)
@@ -366,7 +358,7 @@ namespace ClipmanServerWrapper
         {
             ThreadPool.QueueUserWorkItem(delegate
             {
-                var result = RunPythonUtility("--show-ca-fingerprint", 10000);
+                var result = RunServerUtility("--show-ca-fingerprint", 10000);
                 uiContext.Post(delegate
                 {
                     if (!result.Succeeded || string.IsNullOrWhiteSpace(result.Output))
@@ -396,13 +388,7 @@ namespace ClipmanServerWrapper
             }
             ThreadPool.QueueUserWorkItem(delegate
             {
-                var python = FindPythonLauncher();
-                if (python == null)
-                {
-                    uiContext.Post(delegate { MessageBox.Show("Python 3 was not found.", "Clipman Server", MessageBoxButtons.OK, MessageBoxIcon.Error); }, null);
-                    return;
-                }
-                var start = CreatePythonStartInfo(python, "--share-ca");
+                var start = CreateServerStartInfo("--share-ca");
                 var process = new Process { StartInfo = start };
                 certificateShareProcess = process;
                 try
@@ -444,11 +430,9 @@ namespace ClipmanServerWrapper
             });
         }
 
-        private CommandResult RunPythonUtility(string arguments, int timeoutMilliseconds)
+        private CommandResult RunServerUtility(string arguments, int timeoutMilliseconds)
         {
-            var python = FindPythonLauncher();
-            if (python == null) return new CommandResult(false, "Python 3 was not found.");
-            using (var process = new Process { StartInfo = CreatePythonStartInfo(python, arguments) })
+            using (var process = new Process { StartInfo = CreateServerStartInfo(arguments) })
             {
                 process.Start();
                 var output = process.StandardOutput.ReadToEnd();
@@ -467,7 +451,7 @@ namespace ClipmanServerWrapper
         {
             ThreadPool.QueueUserWorkItem(delegate
             {
-                var result = RunPythonUtility("--create-setup-link --setup-minutes 30 --setup-downloads 5", 30000);
+                var result = RunServerUtility("--create-setup-link --setup-minutes 30 --setup-downloads 5", 30000);
                 uiContext.Post(delegate
                 {
                     if (!result.Succeeded)
@@ -506,7 +490,7 @@ namespace ClipmanServerWrapper
         {
             ThreadPool.QueueUserWorkItem(delegate
             {
-                var result = RunPythonUtility("--revoke-setup-link", 10000);
+                var result = RunServerUtility("--revoke-setup-link", 10000);
                 uiContext.Post(delegate
                 {
                     if (!result.Succeeded)
@@ -519,12 +503,12 @@ namespace ClipmanServerWrapper
             });
         }
 
-        private ProcessStartInfo CreatePythonStartInfo(PythonLauncher python, string arguments)
+        private ProcessStartInfo CreateServerStartInfo(string arguments)
         {
             return new ProcessStartInfo
             {
-                FileName = python.FileName,
-                Arguments = python.ArgumentsPrefix + Quote(scriptPath) + " --config " + Quote(settingsPath) + " " + arguments,
+                FileName = serverPath,
+                Arguments = "--config " + Quote(settingsPath) + " " + arguments,
                 WorkingDirectory = appDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -668,67 +652,6 @@ namespace ClipmanServerWrapper
             automaticUpdateTimer = null;
         }
 
-        private static PythonLauncher FindPythonLauncher()
-        {
-            var candidates = new[]
-            {
-                new PythonLauncher("pythonw.exe", ""),
-                new PythonLauncher("python.exe", "")
-            };
-
-            foreach (var candidate in candidates)
-            {
-                try
-                {
-                    var test = new ProcessStartInfo
-                    {
-                        FileName = candidate.FileName,
-                        Arguments = candidate.ArgumentsPrefix + "--version",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    };
-                    using (var process = Process.Start(test))
-                    {
-                        process.WaitForExit(3000);
-                        if (process.ExitCode == 0)
-                        {
-                            return candidate;
-                        }
-                    }
-                }
-                catch
-                {
-                }
-            }
-
-            try
-            {
-                var locate = new ProcessStartInfo
-                {
-                    FileName = "py.exe",
-                    Arguments = "-3 -c \"import sys;print(sys.executable)\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-                using (var process = Process.Start(locate))
-                {
-                    var executable = process.StandardOutput.ReadToEnd().Trim();
-                    process.WaitForExit(5000);
-                    if (process.ExitCode == 0 && File.Exists(executable))
-                    {
-                        return new PythonLauncher(executable, "");
-                    }
-                }
-            }
-            catch { }
-
-            return null;
-        }
-
         private void LogLine(string line)
         {
             if (string.IsNullOrEmpty(line))
@@ -745,17 +668,17 @@ namespace ClipmanServerWrapper
             }
         }
 
-        private void ExtractBundledServerScript()
+        private void ExtractBundledServerCore()
         {
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(scriptPath));
+                Directory.CreateDirectory(Path.GetDirectoryName(serverPath));
                 var assembly = Assembly.GetExecutingAssembly();
-                using (var input = assembly.GetManifestResourceStream("ClipmanServerWrapper.clipman_server.py"))
+                using (var input = assembly.GetManifestResourceStream("ClipmanServerWrapper.clipman-server.exe"))
                 {
                     if (input == null)
                     {
-                        LogLine("Bundled clipman_server.py resource was not found.");
+                        LogLine("Bundled clipman-server.exe resource was not found.");
                         return;
                     }
 
@@ -763,16 +686,16 @@ namespace ClipmanServerWrapper
                     {
                         input.CopyTo(output);
                         var bytes = output.ToArray();
-                        if (File.Exists(scriptPath))
+                        if (File.Exists(serverPath))
                         {
-                            var existing = File.ReadAllBytes(scriptPath);
+                            var existing = File.ReadAllBytes(serverPath);
                             if (BytesEqual(existing, bytes))
                             {
                                 return;
                             }
                         }
 
-                        File.WriteAllBytes(scriptPath, bytes);
+                        File.WriteAllBytes(serverPath, bytes);
                     }
                 }
             }
@@ -828,18 +751,6 @@ namespace ClipmanServerWrapper
             tray.Dispose();
             StopServer();
             base.ExitThreadCore();
-        }
-    }
-
-    internal sealed class PythonLauncher
-    {
-        public string FileName { get; private set; }
-        public string ArgumentsPrefix { get; private set; }
-
-        public PythonLauncher(string fileName, string argumentsPrefix)
-        {
-            FileName = fileName;
-            ArgumentsPrefix = argumentsPrefix;
         }
     }
 

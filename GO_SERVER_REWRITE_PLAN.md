@@ -1327,6 +1327,8 @@ Exit criteria:
 
 ### Phase 5: Platform wrappers and installers
 
+Implementation status: in progress. The first native-packaging slice embeds and launches the Go core from the Windows wrapper, bundles a universal Go core in the macOS app, changes both Docker definitions/entrypoint to a Python/OpenSSL-free native runtime, and adds multi-architecture Linux binaries plus manifest v2 to the transition bundle. Linux helper/update migration and full platform package matrices remain.
+
 Work:
 
 - embed and launch the Go core from Windows and macOS wrappers;

@@ -2,12 +2,17 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-if [ -f "$SCRIPT_DIR/../clipman_server.py" ]; then
-  SOURCE_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-elif [ -f "$SCRIPT_DIR/clipman_server.py" ]; then
-  SOURCE_ROOT="$SCRIPT_DIR"
-else
-  echo "Could not find clipman_server.py beside or above this installer." >&2
+case "$(uname -m)" in
+  x86_64|amd64) NATIVE_ARCH=amd64 ;;
+  aarch64|arm64) NATIVE_ARCH=arm64 ;;
+  armv7l|armv7*) NATIVE_ARCH=armv7 ;;
+  *) echo "Unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+SOURCE_ROOT="$SCRIPT_DIR"
+SERVER_SOURCE="$SOURCE_ROOT/clipman-server-$NATIVE_ARCH"
+UPDATER_SOURCE="$SOURCE_ROOT/clipman-server-updater-$NATIVE_ARCH"
+if [ ! -x "$SERVER_SOURCE" ] || [ ! -x "$UPDATER_SOURCE" ]; then
+  echo "Could not find native Clipman Server binaries for $NATIVE_ARCH beside this installer." >&2
   exit 1
 fi
 
@@ -84,10 +89,10 @@ esac
 mkdir -p "$APP_DIR" "$BIN_DIR" "$CONFIG_DIR"
 chmod 700 "$CONFIG_DIR" 2>/dev/null || true
 
-cp "$SOURCE_ROOT/clipman_server.py" "$APP_DIR/clipman_server.py"
-chmod 700 "$APP_DIR/clipman_server.py" 2>/dev/null || true
-cp "$SOURCE_ROOT/clipman_server_updater.py" "$APP_DIR/clipman_server_updater.py"
-chmod 700 "$APP_DIR/clipman_server_updater.py" 2>/dev/null || true
+cp "$SERVER_SOURCE" "$APP_DIR/clipman-server"
+chmod 700 "$APP_DIR/clipman-server" 2>/dev/null || true
+cp "$UPDATER_SOURCE" "$APP_DIR/clipman-server-updater"
+chmod 700 "$APP_DIR/clipman-server-updater" 2>/dev/null || true
 
 if [ -f "$SOURCE_ROOT/Manual.html" ]; then
   cp "$SOURCE_ROOT/Manual.html" "$APP_DIR/Manual.html"
@@ -98,7 +103,7 @@ fi
 
 cat > "$BIN_DIR/clipman-server" <<EOF
 #!/usr/bin/env sh
-exec python3 "$APP_DIR/clipman_server.py" --config "$CONFIG_FILE" "\$@"
+exec "$APP_DIR/clipman-server" --config "$CONFIG_FILE" "\$@"
 EOF
 chmod 700 "$BIN_DIR/clipman-server" 2>/dev/null || true
 
@@ -219,7 +224,7 @@ server_is_running() {
       *) return 1 ;;
     esac
   else
-    pgrep -f "clipman_server.py --config \$CONFIG_FILE" >/dev/null 2>&1
+    pgrep -f "$APP_DIR/clipman-server --config \$CONFIG_FILE" >/dev/null 2>&1
   fi
 }
 
@@ -227,13 +232,13 @@ stop_for_maintenance() {
   if has_user_service; then
     service_command stop
   else
-    pkill -f "clipman_server.py --config \$CONFIG_FILE" 2>/dev/null || true
+    pkill -f "$APP_DIR/clipman-server --config \$CONFIG_FILE" 2>/dev/null || true
     seconds=0
-    while pgrep -f "clipman_server.py --config \$CONFIG_FILE" >/dev/null 2>&1 && [ "\$seconds" -lt 10 ]; do
+    while pgrep -f "$APP_DIR/clipman-server --config \$CONFIG_FILE" >/dev/null 2>&1 && [ "\$seconds" -lt 10 ]; do
       sleep 1
       seconds=\$((seconds + 1))
     done
-    if pgrep -f "clipman_server.py --config \$CONFIG_FILE" >/dev/null 2>&1; then
+    if pgrep -f "$APP_DIR/clipman-server --config \$CONFIG_FILE" >/dev/null 2>&1; then
       echo "Clipman Server did not stop before maintenance." >&2
       return 1
     fi
@@ -288,7 +293,7 @@ case "\${1:-help}" in
     if has_user_service; then
       service_command stop
     else
-      pkill -f "clipman_server.py --config \$CONFIG_FILE" 2>/dev/null || true
+      pkill -f "$APP_DIR/clipman-server --config \$CONFIG_FILE" 2>/dev/null || true
     fi
     ;;
   restart)
@@ -299,7 +304,7 @@ case "\${1:-help}" in
     if has_user_service; then
       service_command status
     else
-      pgrep -af "clipman_server.py --config \$CONFIG_FILE" || echo "Clipman Server is not running."
+      pgrep -af "$APP_DIR/clipman-server --config \$CONFIG_FILE" || echo "Clipman Server is not running."
     fi
     ;;
   list)
@@ -477,10 +482,10 @@ esac
 EOF
 chmod 700 "$BIN_DIR/clipmanserver" 2>/dev/null || true
 
-python3 "$APP_DIR/clipman_server.py" --config "$CONFIG_FILE" --write-connection-info >/dev/null
+"$APP_DIR/clipman-server" --config "$CONFIG_FILE" --write-connection-info >/dev/null
 
 echo "Clipman Server installed."
-echo "Program: $APP_DIR/clipman_server.py"
+echo "Program: $APP_DIR/clipman-server"
 echo "Launcher: $BIN_DIR/clipman-server"
 echo "Helper: $BIN_DIR/clipmanserver"
 echo "Settings: $CONFIG_FILE"
