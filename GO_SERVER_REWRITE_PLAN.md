@@ -4,7 +4,7 @@ Status: In progress on branch `go-server`
 
 Revision: 2026-08-10 — CLI-driven automated compatibility testing
 
-Implementation checkpoint, 2026-08-10: the Go module and commands now compile; settings/default/path handling, stable version and port output, the initial HTTP health surface, network-safety validation, graceful shutdown, and the cross-platform data-root lock are in place. The compatibility command validates its coverage manifest and probes Python, Go, and CLI executables in the planned modes. Authenticated database `HEAD`/`GET`/conditional `PUT` is the next vertical slice.
+Implementation checkpoint, 2026-08-10: phases 1 and the first phase-2 vertical slice are implemented. The Go server now provides settings/default/path handling, stable version and port output, network-safety validation, graceful shutdown, the cross-platform data-root lock, and authenticated database `HEAD`/streaming `GET`/staged conditional `PUT` with revisions, metadata, keyed locks, and backup hooks. Go unit/HTTP tests, the real CLI `init`/`put`/`list`/`sync`/`status` scenario, and an in-place Go-to-Python-to-Go dummy-data handoff pass. Remaining phase-2 work is deeper raw/concurrent/large-transfer coverage, complete runtime counters and health fidelity, backup characterization, TLS listener tests, and the full bidirectional handoff matrix.
 
 Target: Rewrite the current Clipman Server 2.x implementation in Go without changing the client protocol, encrypted database format, settings, on-disk layout, or normal desktop user experience.
 

@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/OnjLouis/Clipman/ClipmanServer/internal/blobstore"
 	"github.com/OnjLouis/Clipman/ClipmanServer/internal/config"
 	"github.com/OnjLouis/Clipman/ClipmanServer/internal/dataroot"
 	"github.com/OnjLouis/Clipman/ClipmanServer/internal/platform"
@@ -340,6 +341,20 @@ func (s *runtimeStats) summary() map[string]any {
 }
 
 func runHTTP(settings config.Settings, configPath, version string, stdout, stderr io.Writer) int {
+	maxBytes, _ := settings.Int("MaxDatabaseBytes")
+	backupMinutes, _ := settings.Int("BackupIntervalMinutes")
+	retentionHours, _ := settings.Int("BackupRetentionHours")
+	maxBackups, _ := settings.Int("MaxBackups")
+	store, err := blobstore.New(blobstore.Options{
+		Root: filepath.Dir(settings.String("DatabasePath")), MaxDatabaseBytes: int64(maxBytes),
+		CreateBackupBeforeWrite: settings.Bool("CreateBackupBeforeEveryUpload"),
+		BackupInterval:          time.Duration(backupMinutes) * time.Minute,
+		BackupRetention:         time.Duration(retentionHours) * time.Hour, MaxBackups: maxBackups,
+	})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	port, _ := settings.Int("Port")
 	address := net.JoinHostPort(strings.Trim(settings.String("Host"), "[]"), strconv.Itoa(port))
 	listener, err := net.Listen("tcp", address)
@@ -350,34 +365,7 @@ func runHTTP(settings config.Settings, configPath, version string, stdout, stder
 	}
 	defer listener.Close()
 	stats := newRuntimeStats()
-	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		path := strings.TrimRight(request.URL.Path, "/")
-		if path == "" {
-			path = "/"
-		}
-		if request.Method == http.MethodGet && path == "/api/v1/health" {
-			payload := healthPayload(settings, version, stats)
-			data, marshalErr := config.Marshal(payload)
-			if marshalErr != nil {
-				http.Error(writer, "Internal server error", http.StatusInternalServerError)
-				stats.record(request.Method, http.StatusInternalServerError, true)
-				return
-			}
-			writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-			writer.Header().Set("Content-Length", strconv.Itoa(len(data)))
-			writer.WriteHeader(http.StatusOK)
-			_, _ = writer.Write(data)
-			stats.record(request.Method, http.StatusOK, true)
-			return
-		}
-		if !authorized(request, settings.String("AuthToken")) {
-			writeText(writer, http.StatusUnauthorized, "Unauthorized")
-			stats.record(request.Method, http.StatusUnauthorized, false)
-			return
-		}
-		writeText(writer, http.StatusNotFound, "Not found")
-		stats.record(request.Method, http.StatusNotFound, false)
-	})
+	handler := newHandler(settings, version, stats, store)
 	server := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -386,6 +374,7 @@ func runHTTP(settings config.Settings, configPath, version string, stdout, stder
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 << 10,
 	}
+	// Listener startup and shutdown remain below.
 	scheme := "http"
 	if settings.String("CertFile") != "" {
 		scheme = "https"
@@ -427,6 +416,138 @@ func runHTTP(settings config.Settings, configPath, version string, stdout, stder
 	}
 	logger.Printf("Clipman Server runtime summary (shutdown): requests=%d health_checks=%d", stats.request.Load(), stats.health.Load())
 	return 0
+}
+
+func newHandler(settings config.Settings, version string, stats *runtimeStats, store *blobstore.Store) http.Handler {
+	maxBytes, _ := settings.Int("MaxDatabaseBytes")
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		path := strings.TrimRight(request.URL.Path, "/")
+		if path == "" {
+			path = "/"
+		}
+		if request.Method == http.MethodGet && path == "/api/v1/health" {
+			payload := healthPayload(settings, version, stats)
+			data, marshalErr := config.Marshal(payload)
+			if marshalErr != nil {
+				http.Error(writer, "Internal server error", http.StatusInternalServerError)
+				stats.record(request.Method, http.StatusInternalServerError, true)
+				return
+			}
+			writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+			writer.Header().Set("Content-Length", strconv.Itoa(len(data)))
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write(data)
+			stats.record(request.Method, http.StatusOK, true)
+			return
+		}
+		if !authorized(request, settings.String("AuthToken")) {
+			writeText(writer, http.StatusUnauthorized, "Unauthorized")
+			stats.record(request.Method, http.StatusUnauthorized, false)
+			return
+		}
+		prefix := "/api/v1/database/"
+		escaped := strings.ToLower(request.URL.EscapedPath())
+		if strings.HasPrefix(path, prefix) && !strings.Contains(escaped, "%2f") && !strings.Contains(escaped, "%5c") {
+			id := strings.TrimPrefix(path, prefix)
+			if blobstore.ValidDatabaseID(id) {
+				handleDatabase(writer, request, store, id, int64(maxBytes), stats)
+				return
+			}
+		}
+		writeText(writer, http.StatusNotFound, "Not found")
+		stats.record(request.Method, http.StatusNotFound, false)
+	})
+}
+
+func handleDatabase(w http.ResponseWriter, r *http.Request, store *blobstore.Store, id string, maxBytes int64, stats *runtimeStats) {
+	setRevision := func(info blobstore.Info) {
+		w.Header().Set("ETag", `"`+info.Revision+`"`)
+		w.Header().Set("X-Clipman-Revision", info.Revision)
+	}
+	status := http.StatusOK
+	switch r.Method {
+	case http.MethodHead:
+		info, err := store.Head(id)
+		if errors.Is(err, blobstore.ErrNotFound) {
+			status = http.StatusNotFound
+			w.WriteHeader(status)
+			break
+		}
+		if err != nil {
+			status = http.StatusInternalServerError
+			writeText(w, status, "Internal server error")
+			break
+		}
+		setRevision(info)
+		w.Header().Set("Content-Length", strconv.FormatInt(info.Length, 10))
+		w.WriteHeader(status)
+	case http.MethodGet:
+		_, _, err := store.Get(r.Context(), id, func(info blobstore.Info) error {
+			setRevision(info)
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Length", strconv.FormatInt(info.Length, 10))
+			w.WriteHeader(status)
+			return nil
+		}, w)
+		if errors.Is(err, blobstore.ErrNotFound) {
+			status = http.StatusNotFound
+			writeText(w, status, "Not found")
+		} else if err != nil {
+			status = http.StatusInternalServerError
+		}
+	case http.MethodPut:
+		if r.ContentLength < 0 {
+			status = http.StatusBadRequest
+			writeText(w, status, "A valid Content-Length header is required")
+			break
+		}
+		if r.ContentLength > maxBytes {
+			status = http.StatusRequestEntityTooLarge
+			writeText(w, status, fmt.Sprintf("Database exceeds the configured %d byte limit", maxBytes))
+			break
+		}
+		ifNone, ifMatch := strings.TrimSpace(r.Header.Get("If-None-Match")), strings.Trim(strings.TrimSpace(r.Header.Get("If-Match")), `"`)
+		if ifNone != "" && ifNone != "*" {
+			status = http.StatusBadRequest
+			writeText(w, status, "If-None-Match must be *")
+			break
+		}
+		if ifNone != "" && ifMatch != "" {
+			status = http.StatusBadRequest
+			writeText(w, status, "If-Match and If-None-Match cannot be combined")
+			break
+		}
+		result, err := store.Put(r.Context(), id, r.Body, r.ContentLength, blobstore.Conditions{Match: ifMatch, CreateOnly: ifNone == "*"})
+		var conflict *blobstore.ConflictError
+		if errors.As(err, &conflict) {
+			status = conflict.Status
+			if conflict.Revision != "" {
+				w.Header().Set("X-Clipman-Revision", conflict.Revision)
+			}
+			writeText(w, status, conflict.Message)
+			break
+		}
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			status = http.StatusBadRequest
+			writeText(w, status, "Request body ended before Content-Length bytes were received")
+			break
+		}
+		if err != nil {
+			status = http.StatusInternalServerError
+			writeText(w, status, "Internal server error")
+			break
+		}
+		setRevision(result.Info)
+		data, _ := config.Marshal(map[string]any{"Status": "ok", "DatabaseRevision": result.Info.Revision, "DatabaseLength": result.Info.Length})
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.WriteHeader(status)
+		_, _ = w.Write(data)
+	default:
+		status = http.StatusNotFound
+		writeText(w, status, "Not found")
+	}
+	stats.record(r.Method, status, false)
 }
 
 func healthPayload(settings config.Settings, version string, stats *runtimeStats) map[string]any {

@@ -48,14 +48,14 @@
       "surface": "protocol",
       "owner": "cli-and-raw-differential",
       "platforms": ["windows", "linux", "darwin"],
-      "status": "pending"
+      "status": "in-progress"
     },
     {
       "id": "filesystem.backups",
       "surface": "filesystem",
       "owner": "raw-differential",
       "platforms": ["windows", "linux", "darwin"],
-      "status": "pending"
+      "status": "in-progress"
     },
     {
       "id": "onboarding.connection-file",
