@@ -2,6 +2,8 @@
 
 Status: In progress on branch `go-server`
 
+Interruption/resume checkpoint: `GO_SERVER_REWRITE_STATUS.md`
+
 Revision: 2026-08-10 — CLI-driven automated compatibility testing
 
 Implementation checkpoint, 2026-08-10: phases 1 and the primary vertical slices for phases 2–4 are implemented. In addition to authenticated database synchronization, the Go server now provides database inventory/deletion/pruning, connection files, concurrency-safe expiring setup links, native-Go private-CA and server-certificate generation/renewal/inspection, temporary public-CA sharing, and private-CA HTTPS accepted by the real CLI without system trust installation. The Go updater now provides manifest-v2 OS/architecture selection, same-version Python-to-Go migration selection, HTTPS/digest/download limits, hostile-archive defenses, verified artifact selection, service-coordinated replacement, health checks, and rollback. Remaining release-gate work includes the deeper phase-2 differential/load matrix and phase-4 integration of concrete systemd, runit, Windows, and macOS service controllers with the phase-5 packages/wrappers.
