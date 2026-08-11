@@ -6,7 +6,7 @@ Branch: `go-server`
 
 ## Resume point
 
-The committed implementation is safe to resume from. The rewrite checkpoints through Phase 6, oldest first, are:
+The committed implementation is safe to resume from. The rewrite checkpoints through the first Phase 7 slice, oldest first, are:
 
 1. `7a9f365 Start Go server compatibility rewrite`
 2. `534b20f Implement Go database synchronization`
@@ -15,8 +15,9 @@ The committed implementation is safe to resume from. The rewrite checkpoints thr
 5. `999bf03 Start native platform packaging`
 6. `2c42330 Migrate Linux helpers to native updater`
 7. `f6028cd Start server release compatibility gates`
+8. `7d7f365 Prepare Python to Go bridge updates`
 
-Phase 7 bridge-release preparation is currently the working-tree checkpoint and should be committed after its full verification passes.
+All tracked rewrite progress through the Phase 7 bridge preparation described below is committed. There are no pending tracked implementation edits at this checkpoint.
 
 Do not discard or absorb unrelated untracked files shown by `git status`. They predate or are outside the Go rewrite and belong to the user.
 
@@ -43,6 +44,8 @@ Do not discard or absorb unrelated untracked files shown by `git status`. They p
 - Go-to-Python-to-Go in-place database handoff with both entries preserved.
 - Go-generated private CA and leaf certificate, `.clpconf` import, and real CLI synchronization over HTTPS without installing the CA into the operating-system trust store.
 - Unit/HTTP coverage for administration, setup-link concurrency and limits, certificate renewal without CA replacement, malicious archive rejection, digest/architecture selection, same-version migration selection, and failed-health rollback with service restart.
+- Historical Python compatibility suite: 57 tests passed with three platform-specific skips on Windows after updating its Docker assertion for the native entrypoint.
+- Phase 7 verification rerun: `go test ./...`, `go vet ./...`, Python bytecode compilation, and `git diff --check` passed.
 
 ## Important remaining work
 
@@ -71,5 +74,7 @@ git switch go-server
 git status --short
 git log -3 --oneline
 ```
+
+Expected starting commit after this documentation checkpoint: the commit immediately following `7d7f365`. Untracked user files must remain untouched. `.test-tmp-phase7-cache/` is a disposable Go build-cache directory from verification; its attempted cleanup was interrupted by a slow filesystem operation and it is not part of the rewrite checkpoint.
 
 The authoritative design and phase exit criteria remain in `GO_SERVER_REWRITE_PLAN.md`; this file is the concise interruption/recovery checkpoint.
