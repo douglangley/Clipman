@@ -1,0 +1,40 @@
+{
+  "date": "2026-08-11",
+  "platform": "windows",
+  "result": "pass",
+  "initial_records": 300,
+  "final_history_records": 332,
+  "clients": 2,
+  "logical_history_sha256": "49bc693f12cac07ac0c977d5aaad661daba0ec3a404d5055f1c9f9f4818f10ad",
+  "encrypted_database_sha256": "fa3d5d7d6dd30a947323ca4a1c09c3426e40db924151543186de268671c949bb",
+  "go_python_go_handoff": true,
+  "commands_covered": [
+    "init",
+    "status",
+    "status --refresh",
+    "put",
+    "list",
+    "get",
+    "rm",
+    "sync"
+  ],
+  "data_cases": [
+    "utf-8",
+    "crlf",
+    "nul",
+    "groups",
+    "pinned",
+    "templates",
+    "duplicates",
+    "tombstones"
+  ],
+  "verification": {
+    "server_go_test": "pass",
+    "server_go_vet": "pass",
+    "cli_go_test": "pass",
+    "cli_go_vet": "pass",
+    "python_server_tests": 60,
+    "python_platform_skips": 3
+  },
+  "notes": "Interactive menu and pick presentation are outside this non-interactive corpus. No personal configuration or database was used."
+}

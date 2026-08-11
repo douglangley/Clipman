@@ -1,6 +1,6 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-11 (Phase 7 historical migration simulations started; build matrices deferred)
+Last updated: 2026-08-11 (full Windows CLI corpus passed; build matrices deferred)
 
 Branch: `go-server`
 
@@ -66,6 +66,14 @@ No external release or asset publication has occurred.
 The next Phase 7 slice fixed ordinary historical installations: after validating a native tar, the bridge now installs its native core directly instead of incorrectly looking for the legacy transition ZIP's shell installer. The generated launcher safely quotes paths containing spaces and apostrophes. Isolated tests model the old-updater transition-ZIP selection followed by the bridge updater's same-version native selection, a successful ordinary installation, and a failed native health check. Dummy settings, opaque database bytes, TLS authority material, connection files, service definitions, management helper, and retained Python fallback files are asserted byte-for-byte across the relevant paths.
 
 Current verification is 60 historical Python tests passing with three Linux-only skips on Windows, plus `go test ./...`, `go vet ./...`, and `git diff --check`.
+
+## Full Windows CLI acceptance checkpoint
+
+The reusable `ClipmanServer/scripts/windows-cli-acceptance.ps1` corpus passed against the native Go server on Windows using an isolated server root and two isolated CLI profiles. It created 300 records through real CLI invocations and finished with 332 live history records after additions and deletions from both clients. Coverage included `init`, `status`, `status --refresh`, `put`, `list`, `get`, `rm`, and `sync`; groups, pinned entries, duplicate modes, templates, tombstones, searches, UTF-8, CRLF, and embedded NUL data were exercised. Interactive `menu` and `pick` presentation remain manual-only.
+
+Client A and client B converged after A-to-B and B-to-A mutations. The same encrypted server bucket then survived Go-to-Python-to-Go process handoff, including a record written while Python owned the data root and read after Go restarted. The final canonical logical-history SHA-256 was `49bc693f12cac07ac0c977d5aaad661daba0ec3a404d5055f1c9f9f4818f10ad`; the final encrypted `.clipdb` SHA-256 was `fa3d5d7d6dd30a947323ca4a1c09c3426e40db924151543186de268671c949bb`. Administrative inventory reported exactly one healthy bucket, 17,704 bytes, with one backup. No personal Clipman settings or data were used.
+
+After the corpus, the full Go server test/vet suite, full CLI test/vet suite, and all 60 Python server/updater/installer tests passed; three Linux-only tests skipped on Windows. Machine-readable results are stored in `ClipmanServer/compat/windows-cli-acceptance-latest.json`.
 
 ## Recommended next action
 
