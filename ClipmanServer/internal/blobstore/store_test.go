@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -60,5 +63,86 @@ func TestShortUploadDoesNotCreateDatabase(t *testing.T) {
 func TestDatabaseIDValidation(t *testing.T) {
 	if !ValidDatabaseID(strings.Repeat("z", 43)) || ValidDatabaseID("../bad") || ValidDatabaseID(strings.Repeat("z", 31)) {
 		t.Fatal("database ID validation mismatch")
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(buffer []byte) (int, error) {
+	for index := range buffer {
+		buffer[index] = 0
+	}
+	return len(buffer), nil
+}
+
+func TestLargeTransferUsesStreamingPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("64 MiB release-gate transfer")
+	}
+	const size int64 = 64 << 20
+	store, err := New(Options{Root: t.TempDir(), MaxDatabaseBytes: size})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.Repeat("l", 43)
+	result, err := store.Put(context.Background(), id, io.LimitReader(zeroReader{}, size), size, Conditions{CreateOnly: true})
+	if err != nil || result.Info.Length != size {
+		t.Fatalf("put info=%+v err=%v", result.Info, err)
+	}
+	info, written, err := store.Get(context.Background(), id, nil, io.Discard)
+	if err != nil || written != size || info.Length != size {
+		t.Fatalf("get info=%+v written=%d err=%v", info, written, err)
+	}
+	store.locks.mutex.Lock()
+	remaining := len(store.locks.entries)
+	store.locks.mutex.Unlock()
+	if remaining != 0 {
+		t.Fatalf("keyed locks retained %d entries", remaining)
+	}
+}
+
+func TestSeparateBucketsUpdateIndependently(t *testing.T) {
+	store, _ := New(Options{Root: t.TempDir(), MaxDatabaseBytes: 1024})
+	ids := []string{strings.Repeat("x", 43), strings.Repeat("y", 43)}
+	var wg sync.WaitGroup
+	errorsCh := make(chan error, len(ids))
+	for index, id := range ids {
+		wg.Add(1)
+		go func(id string, value byte) {
+			defer wg.Done()
+			_, err := store.Put(context.Background(), id, bytes.NewReader([]byte{value}), 1, Conditions{CreateOnly: true})
+			errorsCh <- err
+		}(id, byte(index))
+	}
+	wg.Wait()
+	close(errorsCh)
+	for err := range errorsCh {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range ids {
+		if _, err := store.Head(id); err != nil {
+			t.Fatalf("bucket %s: %v", id, err)
+		}
+	}
+}
+
+func TestCancelledUploadCleansStagingFile(t *testing.T) {
+	root := t.TempDir()
+	store, _ := New(Options{Root: root, MaxDatabaseBytes: 1024})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := store.Put(ctx, strings.Repeat("q", 43), zeroReader{}, 1024, Conditions{CreateOnly: true})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation, got %v", err)
+	}
+	uploads := filepath.Join(root, ".uploads")
+	entries, readErr := os.ReadDir(uploads)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("cancelled upload left %d staging files", len(entries))
 	}
 }

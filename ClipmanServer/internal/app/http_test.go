@@ -3,10 +3,13 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/OnjLouis/Clipman/ClipmanServer/internal/blobstore"
@@ -50,7 +53,7 @@ func TestDatabaseHTTPRoundTripAndConditions(t *testing.T) {
 		t.Fatalf("conflict: %d %s", conflict.Code, conflict.Body.String())
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(created.Body.Bytes(), &payload); err != nil || payload["Status"] != "ok" {
+	if err := json.Unmarshal(created.Body.Bytes(), &payload); err != nil || payload["Status"] != "ok" || payload["Runtime"] == nil || payload["ListenPrefix"] == nil {
 		t.Fatalf("invalid response JSON: %s (%v)", created.Body.String(), err)
 	}
 }
@@ -86,6 +89,11 @@ func TestSetupLinkDownloadIsLimitedAndUnauthenticated(t *testing.T) {
 		t.Fatalf("page status=%d body=%s", page.Code, page.Body.String())
 	}
 	download := httptest.NewRecorder()
+	head := httptest.NewRecorder()
+	handler.ServeHTTP(head, httptest.NewRequest(http.MethodHead, "/setup/"+code+"/connection.clpconf", nil))
+	if head.Code != 200 || head.Body.Len() != 0 {
+		t.Fatalf("head status=%d body=%q", head.Code, head.Body.String())
+	}
 	handler.ServeHTTP(download, httptest.NewRequest(http.MethodGet, "/setup/"+code+"/connection.clpconf", nil))
 	if download.Code != 200 || !strings.Contains(download.Body.String(), "setup-secret") {
 		t.Fatalf("download status=%d body=%s", download.Code, download.Body.String())
@@ -94,5 +102,135 @@ func TestSetupLinkDownloadIsLimitedAndUnauthenticated(t *testing.T) {
 	handler.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/setup/"+code+"/connection.clpconf", nil))
 	if second.Code != 404 {
 		t.Fatalf("second download status=%d", second.Code)
+	}
+}
+
+func TestHealthMethodCompatibilityBoundary(t *testing.T) {
+	settings, _ := config.Defaults()
+	settings.SetString("AuthToken", "secret")
+	root := t.TempDir()
+	store, _ := blobstore.New(blobstore.Options{Root: root, MaxDatabaseBytes: 1024})
+	handler := newHandler(settings, filepath.Join(root, "settings.json"), "test", newRuntimeStats(), store)
+	unauthorized := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodHead, "/api/v1/health", nil))
+	if unauthorized.Code != 401 {
+		t.Fatalf("unauthenticated HEAD status=%d", unauthorized.Code)
+	}
+	request := httptest.NewRequest(http.MethodHead, "/api/v1/health", nil)
+	request.Header.Set("Authorization", "Bearer secret")
+	authorized := httptest.NewRecorder()
+	handler.ServeHTTP(authorized, request)
+	if authorized.Code != 404 {
+		t.Fatalf("authenticated HEAD status=%d", authorized.Code)
+	}
+}
+
+func TestMalformedDatabaseRequestsDoNotCreateBuckets(t *testing.T) {
+	root := t.TempDir()
+	settings, _ := config.Defaults()
+	settings.SetString("AuthToken", "secret")
+	settings.SetString("DatabasePath", filepath.Join(root, "clipman-history.clipdb"))
+	settings.SetInt("MaxDatabaseBytes", 8)
+	store, _ := blobstore.New(blobstore.Options{Root: root, MaxDatabaseBytes: 8})
+	handler := newHandler(settings, filepath.Join(root, "settings.json"), "test", newRuntimeStats(), store)
+	id := strings.Repeat("a", 43)
+	cases := []struct {
+		name, path    string
+		contentLength int64
+		headers       map[string]string
+		want          int
+	}{{"encoded separator", "/api/v1/database/" + id + "%2Fbad", 0, nil, 404}, {"missing length", "/api/v1/database/" + id, -1, nil, 400}, {"oversize", "/api/v1/database/" + id, 9, nil, 413}, {"bad create condition", "/api/v1/database/" + id, 1, map[string]string{"If-None-Match": "value"}, 400}, {"combined conditions", "/api/v1/database/" + id, 1, map[string]string{"If-None-Match": "*", "If-Match": "revision"}, 400}}
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPut, item.path, strings.NewReader("123456789"))
+			request.ContentLength = item.contentLength
+			request.Header.Set("Authorization", "Bearer secret")
+			for key, value := range item.headers {
+				request.Header.Set(key, value)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != item.want {
+				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+			}
+		})
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "Databases"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("failed probes created %d buckets", len(entries))
+	}
+}
+
+func TestConcurrentFirstWritersHaveOneWinner(t *testing.T) {
+	root := t.TempDir()
+	settings, _ := config.Defaults()
+	settings.SetString("AuthToken", "secret")
+	settings.SetString("DatabasePath", filepath.Join(root, "clipman-history.clipdb"))
+	store, _ := blobstore.New(blobstore.Options{Root: root, MaxDatabaseBytes: 1024})
+	stats := newRuntimeStats()
+	handler := newHandler(settings, filepath.Join(root, "settings.json"), "test", stats, store)
+	id := strings.Repeat("c", 43)
+	const writers = 12
+	statuses := make(chan int, writers)
+	var wg sync.WaitGroup
+	for index := 0; index < writers; index++ {
+		wg.Add(1)
+		go func(value byte) {
+			defer wg.Done()
+			request := httptest.NewRequest(http.MethodPut, "/api/v1/database/"+id, bytes.NewReader([]byte{value}))
+			request.Header.Set("Authorization", "Bearer secret")
+			request.Header.Set("If-None-Match", "*")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			statuses <- response.Code
+		}(byte(index))
+	}
+	wg.Wait()
+	close(statuses)
+	success, precondition := 0, 0
+	for status := range statuses {
+		if status == 200 {
+			success++
+		} else if status == 412 {
+			precondition++
+		} else {
+			t.Fatalf("unexpected status %d", status)
+		}
+	}
+	if success != 1 || precondition != writers-1 {
+		t.Fatalf("success=%d precondition=%d", success, precondition)
+	}
+	summary := stats.summary()
+	if summary["DatabaseUploads"] != int64(writers) || summary["Conflicts"] != int64(writers-1) {
+		t.Fatalf("stats=%+v", summary)
+	}
+}
+
+func TestRuntimeCountersTrackDatabaseTraffic(t *testing.T) {
+	root := t.TempDir()
+	settings, _ := config.Defaults()
+	settings.SetString("AuthToken", "secret")
+	settings.SetString("DatabasePath", filepath.Join(root, "clipman-history.clipdb"))
+	store, _ := blobstore.New(blobstore.Options{Root: root, MaxDatabaseBytes: 1024})
+	stats := newRuntimeStats()
+	handler := newHandler(settings, filepath.Join(root, "settings.json"), "test", stats, store)
+	id := strings.Repeat("d", 43)
+	request := func(method string, body string) {
+		req := httptest.NewRequest(method, "/api/v1/database/"+id, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer secret")
+		if method == http.MethodPut {
+			req.Header.Set("If-None-Match", "*")
+		}
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	request(http.MethodPut, "abcd")
+	request(http.MethodHead, "")
+	request(http.MethodGet, "")
+	summary := stats.summary()
+	if summary["DatabaseUploads"] != int64(1) || summary["DatabasePolls"] != int64(1) || summary["DatabaseDownloads"] != int64(1) || summary["BytesReceived"] != int64(4) || summary["BytesSent"].(int64) < 4 || summary["UniqueClients"] != 1 {
+		t.Fatalf("stats=%+v", summary)
 	}
 }

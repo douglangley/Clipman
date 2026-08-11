@@ -1,6 +1,6 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-10 (Phase 5 started)
+Last updated: 2026-08-10 (Phase 6 started; build matrices deferred)
 
 Branch: `go-server`
 
@@ -53,6 +53,10 @@ Continue Phase 5 from its first native-packaging slice. Windows now embeds/launc
 The Linux user/system helper migration now uses native settings queries and the native updater for check, install, and host changes. The Go updater accepts deployed helper options, performs HTTPS release discovery, supports native `.tar.gz` as well as transition `.zip` packages, and runs helper-controlled offline maintenance. Unit coverage includes tar extraction and wrapper settings queries.
 
 Next, add exact platform-native archive generation/naming and full package-mode update/rollback tests, including byte-for-byte settings/data preservation. Then exercise Windows extraction/version/restart and macOS packaging on their actual platforms and build the multi-architecture containers.
+
+Per user direction, the remaining build/package work is deferred until after the server release gates, and the user will handle Linux and Docker execution. Phase 6 has started. Completed gates include raw malformed/no-side-effect cases, Python-compatible health method behavior and conditional text, full health payloads after successful uploads, setup `HEAD` non-consumption, runtime counters, concurrent first-writer convergence, separate-bucket isolation, cancellation/staging cleanup, keyed-lock cleanup, a streaming 64 MiB transfer, and a live Windows CLI `init`/`put`/`list`/`get`/`sync`/`rm`/`status` run with Unicode dummy data.
+
+Next, build reusable Python/Go raw differential scenarios, complete backup and TLS edge characterization, add slow-client/shutdown/endurance loops and fuzz seeds, run all compatibility modes and repeated handoff/rollback loops, then return to the deferred build/package matrices.
 
 Before changing files, run:
 

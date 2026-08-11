@@ -1347,6 +1347,8 @@ Exit criteria:
 
 ### Phase 6: Differential, endurance, and security release gate
 
+Implementation status: started, with remaining native build/package matrices deferred by user direction until the end. The first release-gate slice adds malformed-request/no-bucket assertions, health-method compatibility, setup `HEAD` consumption checks, exact conditional response text, full status payloads after `PUT`, runtime traffic counters, concurrent first-writer and bucket-isolation tests, canceled-upload cleanup, keyed-lock cleanup, and a streaming 64 MiB round trip. The real CLI `init`/`put`/`list`/`get`/`sync`/`rm`/`status` corpus passes on Windows.
+
 Work:
 
 - run every compatibility-tool mode, the full seeded CLI corpus, raw differentials, handoff/rollback loops, and package matrices;

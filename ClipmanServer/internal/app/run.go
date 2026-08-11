@@ -466,26 +466,53 @@ func printUsage(out io.Writer) {
 }
 
 type runtimeStats struct {
-	started time.Time
-	mu      sync.Mutex
-	methods map[string]int64
-	status  map[string]int64
-	request atomic.Int64
-	health  atomic.Int64
+	started       time.Time
+	mu            sync.Mutex
+	methods       map[string]int64
+	status        map[string]int64
+	clients       map[string]int64
+	request       atomic.Int64
+	health        atomic.Int64
+	uploads       atomic.Int64
+	downloads     atomic.Int64
+	polls         atomic.Int64
+	conflicts     atomic.Int64
+	bytesReceived atomic.Int64
+	bytesSent     atomic.Int64
 }
 
 func newRuntimeStats() *runtimeStats {
-	return &runtimeStats{started: time.Now(), methods: map[string]int64{}, status: map[string]int64{}}
+	return &runtimeStats{started: time.Now(), methods: map[string]int64{}, status: map[string]int64{}, clients: map[string]int64{}}
 }
 
-func (s *runtimeStats) record(method string, status int, health bool) {
+func (s *runtimeStats) record(request *http.Request, status int, health bool, received, sent int64) {
 	s.request.Add(1)
 	if health {
 		s.health.Add(1)
 	}
+	if strings.HasPrefix(request.URL.Path, "/api/v1/database/") {
+		switch request.Method {
+		case http.MethodPut:
+			s.uploads.Add(1)
+		case http.MethodGet:
+			s.downloads.Add(1)
+		case http.MethodHead:
+			s.polls.Add(1)
+		}
+	}
+	if status == http.StatusConflict || status == http.StatusPreconditionFailed {
+		s.conflicts.Add(1)
+	}
+	s.bytesReceived.Add(max(0, received))
+	s.bytesSent.Add(max(0, sent))
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil {
+		host = request.RemoteAddr
+	}
 	s.mu.Lock()
-	s.methods[method]++
+	s.methods[request.Method]++
 	s.status[strconv.Itoa(status)]++
+	s.clients[host]++
 	s.mu.Unlock()
 }
 
@@ -499,19 +526,20 @@ func (s *runtimeStats) summary() map[string]any {
 	for key, value := range s.status {
 		statuses[key] = value
 	}
+	uniqueClients := len(s.clients)
 	s.mu.Unlock()
 	return map[string]any{
 		"StartedUnixMs":     s.started.UnixMilli(),
 		"UptimeSeconds":     int64(time.Since(s.started) / time.Second),
 		"Requests":          s.request.Load(),
-		"DatabaseUploads":   0,
-		"DatabaseDownloads": 0,
-		"DatabasePolls":     0,
+		"DatabaseUploads":   s.uploads.Load(),
+		"DatabaseDownloads": s.downloads.Load(),
+		"DatabasePolls":     s.polls.Load(),
 		"HealthChecks":      s.health.Load(),
-		"Conflicts":         0,
-		"BytesReceived":     0,
-		"BytesSent":         0,
-		"UniqueClients":     0,
+		"Conflicts":         s.conflicts.Load(),
+		"BytesReceived":     s.bytesReceived.Load(),
+		"BytesSent":         s.bytesSent.Load(),
+		"UniqueClients":     uniqueClients,
 		"Methods":           methods,
 		"StatusCodes":       statuses,
 	}
@@ -608,14 +636,14 @@ func newHandler(settings config.Settings, configPath, version string, stats *run
 			data, marshalErr := config.Marshal(payload)
 			if marshalErr != nil {
 				http.Error(writer, "Internal server error", http.StatusInternalServerError)
-				stats.record(request.Method, http.StatusInternalServerError, true)
+				stats.record(request, http.StatusInternalServerError, true, 0, 0)
 				return
 			}
 			writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 			writer.Header().Set("Content-Length", strconv.Itoa(len(data)))
 			writer.WriteHeader(http.StatusOK)
 			_, _ = writer.Write(data)
-			stats.record(request.Method, http.StatusOK, true)
+			stats.record(request, http.StatusOK, true, 0, int64(len(data)))
 			return
 		}
 		if strings.HasPrefix(path, "/setup/") {
@@ -624,7 +652,7 @@ func newHandler(settings config.Settings, configPath, version string, stats *run
 		}
 		if !authorized(request, settings.String("AuthToken")) {
 			writeText(writer, http.StatusUnauthorized, "Unauthorized")
-			stats.record(request.Method, http.StatusUnauthorized, false)
+			stats.record(request, http.StatusUnauthorized, false, 0, int64(len("Unauthorized")))
 			return
 		}
 		prefix := "/api/v1/database/"
@@ -632,12 +660,12 @@ func newHandler(settings config.Settings, configPath, version string, stats *run
 		if strings.HasPrefix(path, prefix) && !strings.Contains(escaped, "%2f") && !strings.Contains(escaped, "%5c") {
 			id := strings.TrimPrefix(path, prefix)
 			if blobstore.ValidDatabaseID(id) {
-				handleDatabase(writer, request, store, id, int64(maxBytes), stats)
+				handleDatabase(writer, request, store, id, int64(maxBytes), settings, version, stats)
 				return
 			}
 		}
 		writeText(writer, http.StatusNotFound, "Not found")
-		stats.record(request.Method, http.StatusNotFound, false)
+		stats.record(request, http.StatusNotFound, false, 0, int64(len("Not found")))
 	})
 }
 
@@ -645,28 +673,40 @@ func handleSetup(w http.ResponseWriter, r *http.Request, path string, manager *o
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	download := len(parts) == 3 && parts[2] == "connection.clpconf"
 	if len(parts) < 2 || len(parts) > 3 || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
-		writeSetup(w, r, http.StatusNotFound, []byte("This temporary Clipman setup link is unavailable.\n"), "text/plain; charset=utf-8", "")
-		stats.record(r.Method, http.StatusNotFound, false)
+		data := []byte("This temporary Clipman setup link is unavailable.\n")
+		writeSetup(w, r, http.StatusNotFound, data, "text/plain; charset=utf-8", "")
+		stats.record(r, http.StatusNotFound, false, 0, setupSent(r, data))
 		return
 	}
 	state, ok := manager.Lookup(parts[1], download && r.Method == http.MethodGet)
 	if !ok {
-		writeSetup(w, r, http.StatusNotFound, []byte("This temporary Clipman setup link is unavailable.\n"), "text/plain; charset=utf-8", "")
-		stats.record(r.Method, http.StatusNotFound, false)
+		data := []byte("This temporary Clipman setup link is unavailable.\n")
+		writeSetup(w, r, http.StatusNotFound, data, "text/plain; charset=utf-8", "")
+		stats.record(r, http.StatusNotFound, false, 0, setupSent(r, data))
 		return
 	}
+	var sent int64
 	if download {
 		data, err := onboarding.ConnectionBytes(settings)
 		if err != nil {
 			writeSetup(w, r, 500, []byte("Internal server error"), "text/plain; charset=utf-8", "")
-			stats.record(r.Method, 500, false)
+			stats.record(r, 500, false, 0, setupSent(r, []byte("Internal server error")))
 			return
 		}
 		writeSetup(w, r, 200, data, "application/x-clipman-server-connection", `attachment; filename="clipman-server-connection.clpconf"`)
+		sent = setupSent(r, data)
 	} else {
-		writeSetup(w, r, 200, onboarding.SetupPage(parts[1], state, r.UserAgent()), "text/html; charset=utf-8", "")
+		data := onboarding.SetupPage(parts[1], state, r.UserAgent())
+		writeSetup(w, r, 200, data, "text/html; charset=utf-8", "")
+		sent = setupSent(r, data)
 	}
-	stats.record(r.Method, 200, false)
+	stats.record(r, 200, false, 0, sent)
+}
+func setupSent(r *http.Request, data []byte) int64 {
+	if r.Method == http.MethodHead {
+		return 0
+	}
+	return int64(len(data))
 }
 func writeSetup(w http.ResponseWriter, r *http.Request, status int, data []byte, contentType, disposition string) {
 	h := w.Header()
@@ -686,12 +726,15 @@ func writeSetup(w http.ResponseWriter, r *http.Request, status int, data []byte,
 	}
 }
 
-func handleDatabase(w http.ResponseWriter, r *http.Request, store *blobstore.Store, id string, maxBytes int64, stats *runtimeStats) {
+func handleDatabase(w http.ResponseWriter, r *http.Request, store *blobstore.Store, id string, maxBytes int64, settings config.Settings, version string, stats *runtimeStats) {
+	countedWriter := &countingResponseWriter{ResponseWriter: w}
+	w = countedWriter
 	setRevision := func(info blobstore.Info) {
 		w.Header().Set("ETag", `"`+info.Revision+`"`)
 		w.Header().Set("X-Clipman-Revision", info.Revision)
 	}
 	status := http.StatusOK
+	var received int64
 	switch r.Method {
 	case http.MethodHead:
 		info, err := store.Head(id)
@@ -718,7 +761,7 @@ func handleDatabase(w http.ResponseWriter, r *http.Request, store *blobstore.Sto
 		}, w)
 		if errors.Is(err, blobstore.ErrNotFound) {
 			status = http.StatusNotFound
-			writeText(w, status, "Not found")
+			writeText(w, status, "Database not found")
 		} else if err != nil {
 			status = http.StatusInternalServerError
 		}
@@ -736,15 +779,17 @@ func handleDatabase(w http.ResponseWriter, r *http.Request, store *blobstore.Sto
 		ifNone, ifMatch := strings.TrimSpace(r.Header.Get("If-None-Match")), strings.Trim(strings.TrimSpace(r.Header.Get("If-Match")), `"`)
 		if ifNone != "" && ifNone != "*" {
 			status = http.StatusBadRequest
-			writeText(w, status, "If-None-Match must be *")
+			writeText(w, status, "If-None-Match must be * when creating a database")
 			break
 		}
 		if ifNone != "" && ifMatch != "" {
 			status = http.StatusBadRequest
-			writeText(w, status, "If-Match and If-None-Match cannot be combined")
+			writeText(w, status, "If-Match and If-None-Match cannot be used together")
 			break
 		}
-		result, err := store.Put(r.Context(), id, r.Body, r.ContentLength, blobstore.Conditions{Match: ifMatch, CreateOnly: ifNone == "*"})
+		counter := &countingReader{reader: r.Body}
+		result, err := store.Put(r.Context(), id, counter, r.ContentLength, blobstore.Conditions{Match: ifMatch, CreateOnly: ifNone == "*"})
+		received = counter.count
 		var conflict *blobstore.ConflictError
 		if errors.As(err, &conflict) {
 			status = conflict.Status
@@ -765,7 +810,7 @@ func handleDatabase(w http.ResponseWriter, r *http.Request, store *blobstore.Sto
 			break
 		}
 		setRevision(result.Info)
-		data, _ := config.Marshal(map[string]any{"Status": "ok", "DatabaseRevision": result.Info.Revision, "DatabaseLength": result.Info.Length})
+		data, _ := config.Marshal(healthPayload(settings, version, stats))
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 		w.WriteHeader(status)
@@ -774,7 +819,29 @@ func handleDatabase(w http.ResponseWriter, r *http.Request, store *blobstore.Sto
 		status = http.StatusNotFound
 		writeText(w, status, "Not found")
 	}
-	stats.record(r.Method, status, false)
+	stats.record(r, status, false, received, countedWriter.count)
+}
+
+type countingReader struct {
+	reader io.Reader
+	count  int64
+}
+
+func (c *countingReader) Read(buffer []byte) (int, error) {
+	n, err := c.reader.Read(buffer)
+	c.count += int64(n)
+	return n, err
+}
+
+type countingResponseWriter struct {
+	http.ResponseWriter
+	count int64
+}
+
+func (c *countingResponseWriter) Write(data []byte) (int, error) {
+	n, err := c.ResponseWriter.Write(data)
+	c.count += int64(n)
+	return n, err
 }
 
 func healthPayload(settings config.Settings, version string, stats *runtimeStats) map[string]any {
