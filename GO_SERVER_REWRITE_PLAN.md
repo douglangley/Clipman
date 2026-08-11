@@ -1369,6 +1369,8 @@ Exit criteria:
 
 ### Phase 7: Bridge release
 
+Implementation status: started as bridge-release preparation; no release has been published. The deployed Python updater can now prefer OS/architecture-specific native Linux assets, perform an intentional same-version Python-to-Go migration, fall back to a newer transition ZIP, safely extract native tar archives, validate manifest-v2 metadata and executable digests, and replace only managed program files. Automated rollback coverage proves that a failed migration can restore the Python launcher while leaving settings, data, and legacy Python files untouched. Real historical-install update loops, manual-recovery documentation, and native artifact publication remain; build/package matrices stay deferred until the end by user direction.
+
 Work:
 
 - ship the bridge-aware Python updater and transition combined asset;

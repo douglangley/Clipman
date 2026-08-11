@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import http.client
 import json
 import os
+import platform
 import re
 import shutil
 import socket
@@ -16,6 +18,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import tarfile
 import time
 import urllib.request
 import zipfile
@@ -61,7 +64,29 @@ def read_releases(api_url: str = RELEASE_API) -> List[Dict[str, Any]]:
     return releases
 
 
-def find_update(releases: Iterable[Dict[str, Any]], current_version: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+def native_linux_architecture(machine: str = "") -> str:
+    value = (machine or platform.machine()).strip().lower()
+    if value in {"x86_64", "amd64"}:
+        return "amd64"
+    if value in {"aarch64", "arm64"}:
+        return "arm64"
+    if value.startswith("armv7"):
+        return "armv7"
+    raise RuntimeError(f"No native Clipman Server package is available for Linux architecture {value or 'unknown'}.")
+
+
+def native_asset_name(version: str, machine: str = "") -> str:
+    return f"ClipmanServer-Linux-{native_linux_architecture(machine)}-{version}.tar.gz"
+
+
+def find_update(
+    releases: Iterable[Dict[str, Any]],
+    current_version: str,
+    *,
+    prefer_native: bool = False,
+    allow_same_version_native: bool = False,
+    machine: str = "",
+) -> Optional[Tuple[str, Dict[str, Any]]]:
     candidates: List[Tuple[str, Dict[str, Any]]] = []
     for release in releases:
         if release.get("draft") or release.get("prerelease"):
@@ -72,15 +97,27 @@ def find_update(releases: Iterable[Dict[str, Any]], current_version: str) -> Opt
     if not candidates:
         return None
     version, release = max(candidates, key=lambda item: version_tuple(item[0]))
-    if version_tuple(version) <= version_tuple(current_version):
+    comparison = (version_tuple(version) > version_tuple(current_version)) - (version_tuple(version) < version_tuple(current_version))
+    if comparison < 0 or (comparison == 0 and not (prefer_native and allow_same_version_native)):
         return None
-    expected = f"ClipmanServer-{version}.zip".lower()
-    for asset in release.get("assets", []):
-        if str(asset.get("name", "")).lower() == expected:
+    expected_names: List[str] = []
+    if prefer_native:
+        expected_names.append(native_asset_name(version, machine))
+    if comparison > 0:
+        expected_names.append(f"ClipmanServer-{version}.zip")
+    for expected_name in expected_names:
+        for asset in release.get("assets", []):
+            if str(asset.get("name", "")).lower() != expected_name.lower():
+                continue
             url = str(asset.get("browser_download_url", ""))
             if not url.lower().startswith("https://"):
                 raise RuntimeError("The server update download did not use HTTPS.")
-            return version, asset
+            selected = dict(asset)
+            selected["_clipman_native"] = expected_name.lower().endswith(".tar.gz")
+            return version, selected
+    if comparison == 0:
+        return None
+    expected = " or ".join(name.lower() for name in expected_names)
     raise RuntimeError(f"Clipman Server {version} is available, but {expected} is missing.")
 
 
@@ -116,6 +153,9 @@ def verify_sha256_digest(expected_digest: str, actual_hex: str) -> None:
 
 
 def safe_extract(zip_path: Path, destination: Path) -> None:
+    if zip_path.name.lower().endswith((".tar.gz", ".tgz")):
+        safe_extract_tar(zip_path, destination)
+        return
     with zipfile.ZipFile(zip_path) as archive:
         entries = archive.infolist()
         if len(entries) > MAX_ZIP_ENTRIES:
@@ -129,8 +169,26 @@ def safe_extract(zip_path: Path, destination: Path) -> None:
         archive.extractall(destination)
 
 
+def safe_extract_tar(archive_path: Path, destination: Path) -> None:
+    with tarfile.open(archive_path, "r:gz") as archive:
+        entries = archive.getmembers()
+        if len(entries) > MAX_ZIP_ENTRIES:
+            raise RuntimeError("The server update package contains too many files.")
+        if sum(max(0, entry.size) for entry in entries) > MAX_EXTRACTED_BYTES:
+            raise RuntimeError("The extracted server update would be unexpectedly large.")
+        for entry in entries:
+            path = PurePosixPath(entry.name.replace("\\", "/"))
+            if path.is_absolute() or ".." in path.parts:
+                raise RuntimeError("The server update package contains an unsafe path.")
+            if not (entry.isfile() or entry.isdir()):
+                raise RuntimeError("The server update package contains an unsafe entry type.")
+        archive.extractall(destination)
+
+
 def locate_package_root(extracted: Path, expected_version: str) -> Path:
     manifests = list(extracted.rglob("manifest.json"))
+    if not manifests:
+        return locate_native_package_root(extracted, expected_version)
     if len(manifests) != 1:
         raise RuntimeError("The server update package did not contain one manifest.")
     root = manifests[0].parent
@@ -141,6 +199,43 @@ def locate_package_root(extracted: Path, expected_version: str) -> Path:
     if any(not path.is_file() for path in required):
         raise RuntimeError("The server update package is missing Linux program files.")
     return root
+
+
+def locate_native_package_root(extracted: Path, expected_version: str, machine: str = "") -> Path:
+    manifests = list(extracted.rglob("manifest-v2.json"))
+    if len(manifests) != 1:
+        raise RuntimeError("The native server update package did not contain one manifest-v2.json.")
+    root = manifests[0].parent
+    manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+    if (
+        manifest.get("format_version") != 2
+        or manifest.get("name") != "Clipman Server"
+        or manifest.get("version") != expected_version
+    ):
+        raise RuntimeError("The native server update manifest did not match the requested release.")
+    architecture = native_linux_architecture(machine)
+    accepted_architectures = {architecture, "arm" if architecture == "armv7" else architecture}
+    matches = [
+        item for item in manifest.get("artifacts", [])
+        if isinstance(item, dict) and item.get("os") == "linux" and item.get("architecture") in accepted_architectures
+    ]
+    if len(matches) != 1:
+        raise RuntimeError(f"The native server update manifest did not contain one Linux {architecture} artifact.")
+    relative = PurePosixPath(str(matches[0].get("path", "")).replace("\\", "/"))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise RuntimeError("The native server artifact path was unsafe.")
+    executable = root.joinpath(*relative.parts)
+    if not executable.is_file():
+        raise RuntimeError("The native server update package is missing its server executable.")
+    expected_digest = str(matches[0].get("sha256", "")).lower()
+    actual_digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    if len(expected_digest) != 64 or not hmac_compare(expected_digest, actual_digest):
+        raise RuntimeError("The native server executable failed its manifest SHA-256 check.")
+    return root
+
+
+def hmac_compare(left: str, right: str) -> bool:
+    return hmac.compare_digest(left, right)
 
 
 def copy_path(source: Path, destination: Path) -> None:
@@ -257,9 +352,12 @@ def restore_program_files(
 
 
 def snapshot_managed_program_files(app_dir: Path) -> Dict[Path, Optional[Tuple[bytes, int, int, int]]]:
+    return snapshot_program_paths([app_dir / name for name in MANAGED_PROGRAM_FILES])
+
+
+def snapshot_program_paths(paths: Iterable[Path]) -> Dict[Path, Optional[Tuple[bytes, int, int, int]]]:
     snapshots: Dict[Path, Optional[Tuple[bytes, int, int, int]]] = {}
-    for name in MANAGED_PROGRAM_FILES:
-        path = app_dir / name
+    for path in paths:
         if not path.exists():
             snapshots[path] = None
             continue
@@ -305,6 +403,31 @@ def restore_managed_program_files(snapshots: Dict[Path, Optional[Tuple[bytes, in
         if hasattr(os, "chown"):
             os.chown(temporary, owner, group)
         temporary.replace(path)
+
+
+def native_server_artifact(package_root: Path, machine: str = "") -> Path:
+    manifest = json.loads((package_root / "manifest-v2.json").read_text(encoding="utf-8"))
+    architecture = native_linux_architecture(machine)
+    accepted = {architecture, "arm" if architecture == "armv7" else architecture}
+    matches = [item for item in manifest.get("artifacts", []) if item.get("os") == "linux" and item.get("architecture") in accepted]
+    if len(matches) != 1:
+        raise RuntimeError(f"The native package did not contain one Linux {architecture} server artifact.")
+    return package_root.joinpath(*PurePosixPath(str(matches[0]["path"]).replace("\\", "/")).parts)
+
+
+def install_managed_native(package_root: Path, app_dir: Path, launcher: Path, config_file: Path) -> None:
+    source = native_server_artifact(package_root)
+    destination = app_dir / "clipman-server"
+    write_managed_file(source, destination)
+    os.chmod(destination, 0o700)
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    temporary = launcher.with_name(launcher.name + ".update")
+    temporary.write_text(
+        "#!/usr/bin/env sh\n" + f"exec '{destination}' --config '{config_file}' \"$@\"\n",
+        encoding="utf-8",
+    )
+    os.chmod(temporary, 0o755)
+    temporary.replace(launcher)
 
 
 def run(command: Iterable[str], *, env: Optional[Dict[str, str]] = None, check: bool = True) -> subprocess.CompletedProcess:
@@ -512,15 +635,18 @@ def install_update(args: argparse.Namespace, version: str, asset: Dict[str, Any]
     launcher = bin_dir / "clipman-server"
     with tempfile.TemporaryDirectory(prefix="clipman-server-update-") as temporary:
         temp = Path(temporary)
-        package_zip = temp / "server.zip"
+        package_zip = temp / str(asset.get("name") or "server.zip")
         extracted = temp / "extracted"
         backup = temp / "backup"
         download_asset(asset, package_zip)
         safe_extract(package_zip, extracted)
         package_root = locate_package_root(extracted, version)
 
+        native_package = bool(asset.get("_clipman_native"))
         managed_program_only = bool(getattr(args, "managed_program_only", False))
         managed_snapshots = snapshot_managed_program_files(app_dir) if managed_program_only else None
+        if managed_snapshots is not None and native_package:
+            managed_snapshots.update(snapshot_program_paths([app_dir / "clipman-server", launcher]))
         if not managed_program_only:
             copy_path(app_dir, backup / "app")
             copy_path(helper, backup / "clipmanserver")
@@ -531,7 +657,10 @@ def install_update(args: argparse.Namespace, version: str, asset: Dict[str, Any]
         run([str(helper), "stop"], check=False)
         try:
             if managed_program_only:
-                install_managed_program_files(package_root, app_dir)
+                if native_package:
+                    install_managed_native(package_root, app_dir, launcher, config_file)
+                else:
+                    install_managed_program_files(package_root, app_dir)
             else:
                 environment = os.environ.copy()
                 environment.update(
@@ -590,7 +719,12 @@ def main() -> int:
             change_listen_host(args, args.set_host, args.advertise_host)
             return 0
         releases = read_releases(args.release_api_url)
-        update = find_update(releases, args.current_version)
+        update = find_update(
+            releases,
+            args.current_version,
+            prefer_native=True,
+            allow_same_version_native=True,
+        )
         if update is None:
             print(f"Clipman Server is up to date. Current version: {args.current_version}.")
             return 0

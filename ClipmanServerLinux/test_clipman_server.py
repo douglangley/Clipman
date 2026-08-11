@@ -65,12 +65,14 @@ class ServerStartupTests(unittest.TestCase):
 
     def test_docker_entrypoint_writes_connection_files_then_runs_server(self) -> None:
         entrypoint = (Path(__file__).resolve().parent.parent / "ClipmanServerDocker" / "docker-entrypoint.sh").read_text(encoding="utf-8")
-        write_command = 'python3 "$@" --write-connection-info >/dev/null'
-        run_command = 'exec python3 "$@"'
+        write_command = '"$@" --write-connection-info >/dev/null'
+        run_command = 'exec "$@"'
 
         self.assertIn(write_command, entrypoint)
         self.assertIn(run_command, entrypoint)
         self.assertLess(entrypoint.index(write_command), entrypoint.index(run_command))
+        self.assertIn('SERVER_BINARY="${CLIPMAN_SERVER_BINARY:-/usr/local/bin/clipman-server}"', entrypoint)
+        self.assertNotIn('python3 "$@"', entrypoint)
         self.assertIn("CLIPMAN_ALLOW_INSECURE_REMOTE=true only on a trusted LAN or VPN", entrypoint)
         self.assertIn("a wildcard listener does not identify an address another device can use", entrypoint)
 

@@ -1,7 +1,10 @@
 import argparse
+import hashlib
+import io
 import json
 import os
 import tempfile
+import tarfile
 import unittest
 import zipfile
 from pathlib import Path
@@ -104,6 +107,97 @@ class ClipmanServerUpdaterTests(unittest.TestCase):
         self.assertEqual("2.10.0", version)
         self.assertEqual("ClipmanServer-2.10.0.zip", asset["name"])
         self.assertIsNone(updater.find_update([release], "2.10.0"))
+
+    def test_bridge_selects_same_version_native_asset(self):
+        release = {
+            "tag_name": "server-v2.10.0",
+            "assets": [
+                {"name": "ClipmanServer-2.10.0.zip", "browser_download_url": "https://example.test/combined.zip"},
+                {"name": "ClipmanServer-Linux-amd64-2.10.0.tar.gz", "browser_download_url": "https://example.test/native.tar.gz"},
+            ],
+        }
+        version, asset = updater.find_update(
+            [release], "2.10.0", prefer_native=True, allow_same_version_native=True, machine="x86_64"
+        )
+        self.assertEqual("2.10.0", version)
+        self.assertEqual("ClipmanServer-Linux-amd64-2.10.0.tar.gz", asset["name"])
+        self.assertTrue(asset["_clipman_native"])
+
+    def test_bridge_falls_back_to_transition_asset_for_newer_release(self):
+        release = {
+            "tag_name": "server-v2.11.0",
+            "assets": [{"name": "ClipmanServer-2.11.0.zip", "browser_download_url": "https://example.test/combined.zip"}],
+        }
+        version, asset = updater.find_update([release], "2.10.0", prefer_native=True, machine="x86_64")
+        self.assertEqual("2.11.0", version)
+        self.assertFalse(asset["_clipman_native"])
+
+    def test_native_tar_manifest_and_digest_are_validated(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "native.tar.gz"
+            binary = b"native-go-server"
+            manifest = json.dumps({
+                "format_version": 2,
+                "name": "Clipman Server",
+                "version": "3.0.0",
+                "artifacts": [{"os": "linux", "architecture": "amd64", "path": "bin/clipman-server", "sha256": hashlib.sha256(binary).hexdigest()}],
+            }).encode("utf-8")
+            with tarfile.open(archive, "w:gz") as output:
+                for name, data in (("package/manifest-v2.json", manifest), ("package/bin/clipman-server", binary)):
+                    info = tarfile.TarInfo(name)
+                    info.size = len(data)
+                    info.mode = 0o755
+                    output.addfile(info, io.BytesIO(data))
+            extracted = root / "extracted"
+            updater.safe_extract(archive, extracted)
+            package_root = updater.locate_native_package_root(extracted, "3.0.0", machine="x86_64")
+            self.assertEqual(binary, updater.native_server_artifact(package_root, "x86_64").read_bytes())
+
+    def test_native_tar_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = Path(temporary) / "unsafe.tar.gz"
+            with tarfile.open(archive, "w:gz") as output:
+                info = tarfile.TarInfo("package/link")
+                info.type = tarfile.SYMTYPE
+                info.linkname = "../../outside"
+                output.addfile(info)
+            with self.assertRaisesRegex(RuntimeError, "unsafe entry type"):
+                updater.safe_extract(archive, Path(temporary) / "output")
+
+    def test_managed_native_bridge_can_restore_python_launcher_without_touching_settings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "package"
+            app = root / "app"
+            launcher = root / "bin" / "clipman-server"
+            config = root / "config" / "settings.json"
+            package.mkdir()
+            app.mkdir()
+            launcher.parent.mkdir()
+            config.parent.mkdir()
+            binary = b"native-go-server"
+            native = package / "bin" / "clipman-server"
+            native.parent.mkdir()
+            native.write_bytes(binary)
+            (package / "manifest-v2.json").write_text(json.dumps({
+                "format_version": 2, "name": "Clipman Server", "version": "3.0.0",
+                "artifacts": [{"os": "linux", "architecture": "amd64", "path": "bin/clipman-server", "sha256": hashlib.sha256(binary).hexdigest()}],
+            }), encoding="utf-8")
+            python_server = app / "clipman_server.py"
+            python_server.write_text("legacy python server", encoding="utf-8")
+            launcher.write_text("#!/bin/sh\nexec python3 legacy.py\n", encoding="utf-8")
+            settings = b'{"AuthToken":"preserved","Port":61234}'
+            config.write_bytes(settings)
+            snapshots = updater.snapshot_program_paths([app / "clipman-server", launcher])
+            updater.install_managed_native(package, app, launcher, config)
+            self.assertEqual(binary, (app / "clipman-server").read_bytes())
+            self.assertNotIn("python3", launcher.read_text(encoding="utf-8"))
+            updater.restore_managed_program_files(snapshots)
+            self.assertFalse((app / "clipman-server").exists())
+            self.assertIn("python3", launcher.read_text(encoding="utf-8"))
+            self.assertEqual(settings, config.read_bytes())
+            self.assertEqual("legacy python server", python_server.read_text(encoding="utf-8"))
 
     def test_client_releases_and_prereleases_are_ignored(self):
         releases = [

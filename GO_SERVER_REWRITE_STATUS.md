@@ -1,16 +1,22 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-10 (Phase 6 started; build matrices deferred)
+Last updated: 2026-08-11 (Phase 7 bridge preparation started; build matrices deferred)
 
 Branch: `go-server`
 
 ## Resume point
 
-The current implementation is committed and safe to resume from. The three rewrite commits, oldest first, are:
+The committed implementation is safe to resume from. The rewrite checkpoints through Phase 6, oldest first, are:
 
 1. `7a9f365 Start Go server compatibility rewrite`
 2. `534b20f Implement Go database synchronization`
 3. `ee2042d Implement server administration and updater core`
+4. `c699eea Record Go server rewrite resume status`
+5. `999bf03 Start native platform packaging`
+6. `2c42330 Migrate Linux helpers to native updater`
+7. `f6028cd Start server release compatibility gates`
+
+Phase 7 bridge-release preparation is currently the working-tree checkpoint and should be committed after its full verification passes.
 
 Do not discard or absorb unrelated untracked files shown by `git status`. They predate or are outside the Go rewrite and belong to the user.
 
@@ -46,17 +52,17 @@ Phase 3 server-core behavior is implemented. Still expand raw differential cover
 
 Phase 4 updater security and transaction core is implemented. Concrete systemd, runit, externally managed Linux, Windows, and macOS service adapters and actual package-script manifest-v2 generation remain coupled to Phase 5. Add complete package-mode before/update/rollback tests and prove settings/data remain byte-for-byte unchanged on every failed update.
 
+## Phase 7 bridge checkpoint
+
+The legacy Python updater now understands `ClipmanServer-Linux-<architecture>-<version>.tar.gz` assets, validates their manifest-v2 artifact and SHA-256 digest, and safely rejects tar traversal, links, devices, excessive entry counts, and excessive expanded size. Its normal release check prefers the native asset, including a same-version migration from Python to Go, while retaining the transition ZIP fallback for a newer release.
+
+Managed Linux migration installs the native core beside the retained Python files and atomically changes the launcher. Program-file snapshots include both the native core and launcher, so failed health checks can restore the prior Python launch path without rewriting settings or data. Unit coverage exercises native selection, transition fallback, archive validation, unsafe links, installation, and restoration. The historical Python suite now also asserts that the migrated Docker entrypoint invokes the native binary rather than Python.
+
+No external release or asset publication has occurred.
+
 ## Recommended next action
 
-Continue Phase 5 from its first native-packaging slice. Windows now embeds/launches `clipman-server.exe`; macOS packages/launches a universal `clipman-server`; Docker is a Go multi-stage/Alpine runtime without Python or OpenSSL; and the transition bundle builds Linux amd64, arm64, and armv7 server/updater binaries with manifest v2. The Windows C# wrapper compiled locally and Go test/vet passed; Docker and macOS execution require their platform environments.
-
-The Linux user/system helper migration now uses native settings queries and the native updater for check, install, and host changes. The Go updater accepts deployed helper options, performs HTTPS release discovery, supports native `.tar.gz` as well as transition `.zip` packages, and runs helper-controlled offline maintenance. Unit coverage includes tar extraction and wrapper settings queries.
-
-Next, add exact platform-native archive generation/naming and full package-mode update/rollback tests, including byte-for-byte settings/data preservation. Then exercise Windows extraction/version/restart and macOS packaging on their actual platforms and build the multi-architecture containers.
-
-Per user direction, the remaining build/package work is deferred until after the server release gates, and the user will handle Linux and Docker execution. Phase 6 has started. Completed gates include raw malformed/no-side-effect cases, Python-compatible health method behavior and conditional text, full health payloads after successful uploads, setup `HEAD` non-consumption, runtime counters, concurrent first-writer convergence, separate-bucket isolation, cancellation/staging cleanup, keyed-lock cleanup, a streaming 64 MiB transfer, and a live Windows CLI `init`/`put`/`list`/`get`/`sync`/`rm`/`status` run with Unicode dummy data.
-
-Next, build reusable Python/Go raw differential scenarios, complete backup and TLS edge characterization, add slow-client/shutdown/endurance loops and fuzz seeds, run all compatibility modes and repeated handoff/rollback loops, then return to the deferred build/package matrices.
+Continue Phase 7 with isolated simulations of each supported historical updater/install layout. Exercise the full before/update/health-failure/rollback sequence against dummy settings, data, TLS material, and Python fallback files, then run compatibility `package` mode against each successful native transition. Add manual-recovery documentation before publishing anything. After bridge behavior is proven, proceed to Phase 8; return to native builds, platform wrappers, Linux/Docker execution, and package matrices at the end as directed.
 
 Before changing files, run:
 
