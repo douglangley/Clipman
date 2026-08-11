@@ -14,6 +14,28 @@ import clipman_server_updater as updater
 
 
 class ClipmanServerUpdaterTests(unittest.TestCase):
+    def write_native_archive(self, path: Path, version: str = "3.0.0", binary: bytes = b"native-go-server") -> None:
+        manifest = json.dumps({
+            "format_version": 2,
+            "name": "Clipman Server",
+            "version": version,
+            "artifacts": [{
+                "os": "linux",
+                "architecture": updater.native_linux_architecture(),
+                "path": "bin/clipman-server",
+                "sha256": hashlib.sha256(binary).hexdigest(),
+            }],
+        }).encode("utf-8")
+        with tarfile.open(path, "w:gz") as output:
+            for name, data, mode in (
+                ("package/manifest-v2.json", manifest, 0o644),
+                ("package/bin/clipman-server", binary, 0o755),
+            ):
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                info.mode = mode
+                output.addfile(info, io.BytesIO(data))
+
     def test_runit_service_backup_excludes_live_supervision_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -132,6 +154,26 @@ class ClipmanServerUpdaterTests(unittest.TestCase):
         self.assertEqual("2.11.0", version)
         self.assertFalse(asset["_clipman_native"])
 
+    def test_historical_two_cycle_bridge_selects_transition_then_same_version_native(self):
+        release = {
+            "tag_name": "server-v2.4.3",
+            "assets": [
+                {"name": "ClipmanServer-2.4.3.zip", "browser_download_url": "https://example.test/transition.zip"},
+                {
+                    "name": f"ClipmanServer-Linux-{updater.native_linux_architecture()}-2.4.3.tar.gz",
+                    "browser_download_url": "https://example.test/native.tar.gz",
+                },
+            ],
+        }
+        bridge_version, transition = updater.find_update([release], "2.4.0")
+        self.assertEqual("2.4.3", bridge_version)
+        self.assertEqual("ClipmanServer-2.4.3.zip", transition["name"])
+        native_version, native = updater.find_update(
+            [release], bridge_version, prefer_native=True, allow_same_version_native=True
+        )
+        self.assertEqual(bridge_version, native_version)
+        self.assertTrue(native["_clipman_native"])
+
     def test_native_tar_manifest_and_digest_are_validated(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -198,6 +240,105 @@ class ClipmanServerUpdaterTests(unittest.TestCase):
             self.assertIn("python3", launcher.read_text(encoding="utf-8"))
             self.assertEqual(settings, config.read_bytes())
             self.assertEqual("legacy python server", python_server.read_text(encoding="utf-8"))
+
+    def test_historical_standard_install_transitions_to_native_without_touching_persistent_state(self):
+        with tempfile.TemporaryDirectory(prefix="clipman historical 'standard' ") as temporary:
+            root = Path(temporary)
+            app = root / "app"
+            bin_dir = root / "bin"
+            state = root / "state"
+            service = root / "systemd" / "clipman-server.service"
+            for directory in (app, bin_dir, state / "tls", state / "databases", service.parent):
+                directory.mkdir(parents=True, exist_ok=True)
+            config = state / "clipman-server-settings.json"
+            persistent = {
+                config: b'{"Host":"127.0.0.1","Port":61234,"Token":"dummy-token"}',
+                state / "databases" / "dummy.clipdb": b"opaque-encrypted-dummy-history",
+                state / "tls" / "clipman-server-ca.crt": b"dummy-public-ca",
+                state / "tls" / "clipman-server-ca.key": b"dummy-private-ca-key",
+                state / "clipman-server-connection.clpconf": b'{"Version":1,"Token":"dummy-token"}\n',
+            }
+            for path, data in persistent.items():
+                path.write_bytes(data)
+            (app / "clipman_server.py").write_bytes(b"historical-python-server")
+            (app / "clipman_server_updater.py").write_bytes(b"bridge-python-updater")
+            helper = bin_dir / "clipmanserver"
+            launcher = bin_dir / "clipman-server"
+            helper.write_bytes(b"historical-helper")
+            launcher.write_text("#!/bin/sh\nexec python3 historical.py \"$@\"\n", encoding="utf-8")
+            service.write_bytes(b"historical-systemd-unit")
+            archive = root / "ClipmanServer-Linux-native-3.0.0.tar.gz"
+            self.write_native_archive(archive)
+            archive_bytes = archive.read_bytes()
+            commands = []
+
+            def fake_run(command, **_kwargs):
+                commands.append(list(command))
+                return mock.Mock(returncode=0)
+
+            args = argparse.Namespace(
+                yes=True, current_version="2.4.0", app_dir=str(app), bin_dir=str(bin_dir),
+                config=str(config), service_file=str(service), helper_path=str(helper), managed_program_only=False,
+            )
+            asset = {"name": archive.name, "browser_download_url": "https://example.test/native.tar.gz", "_clipman_native": True}
+            with mock.patch.object(updater, "download_asset", side_effect=lambda _asset, path: path.write_bytes(archive_bytes)), \
+                 mock.patch.object(updater, "run", side_effect=fake_run), \
+                 mock.patch.object(updater, "wait_for_health"):
+                updater.install_update(args, "3.0.0", asset)
+
+            self.assertEqual(b"native-go-server", (app / "clipman-server").read_bytes())
+            launcher_text = launcher.read_text(encoding="utf-8")
+            self.assertNotIn("python3", launcher_text)
+            self.assertIn("--config", launcher_text)
+            self.assertEqual(b"historical-python-server", (app / "clipman_server.py").read_bytes())
+            self.assertEqual(b"bridge-python-updater", (app / "clipman_server_updater.py").read_bytes())
+            self.assertEqual(b"historical-helper", helper.read_bytes())
+            self.assertEqual(b"historical-systemd-unit", service.read_bytes())
+            for path, data in persistent.items():
+                self.assertEqual(data, path.read_bytes(), str(path))
+            self.assertNotIn("sh", [command[0] for command in commands])
+
+    def test_historical_standard_install_failed_native_health_restores_every_program_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = root / "app"
+            bin_dir = root / "bin"
+            state = root / "state"
+            service = root / "systemd" / "clipman-server.service"
+            for directory in (app, bin_dir, state / "tls", state / "databases", service.parent):
+                directory.mkdir(parents=True, exist_ok=True)
+            config = state / "settings.json"
+            original = {
+                app / "clipman_server.py": b"historical-python-server",
+                app / "clipman_server_updater.py": b"bridge-python-updater",
+                bin_dir / "clipmanserver": b"historical-helper",
+                bin_dir / "clipman-server": b"historical-python-launcher",
+                service: b"historical-service",
+                config: b'{"Host":"127.0.0.1","Port":61234,"Token":"dummy-token"}',
+                state / "databases" / "dummy.clipdb": b"opaque-encrypted-dummy-history",
+                state / "tls" / "clipman-server-ca.key": b"dummy-private-ca-key",
+            }
+            for path, data in original.items():
+                path.write_bytes(data)
+            archive = root / "native.tar.gz"
+            self.write_native_archive(archive)
+            archive_bytes = archive.read_bytes()
+            args = argparse.Namespace(
+                yes=True, current_version="2.4.0", app_dir=str(app), bin_dir=str(bin_dir),
+                config=str(config), service_file=str(service), helper_path=str(bin_dir / "clipmanserver"),
+                managed_program_only=False,
+            )
+            asset = {"name": archive.name, "browser_download_url": "https://example.test/native.tar.gz", "_clipman_native": True}
+            with mock.patch.object(updater, "download_asset", side_effect=lambda _asset, path: path.write_bytes(archive_bytes)), \
+                 mock.patch.object(updater, "run", return_value=mock.Mock(returncode=0)), \
+                 mock.patch.object(updater, "wait_for_health", side_effect=RuntimeError("native process did not become healthy")), \
+                 mock.patch.object(updater, "service_diagnostics", return_value="dummy service diagnostics"):
+                with self.assertRaisesRegex(RuntimeError, "native process did not become healthy"):
+                    updater.install_update(args, "3.0.0", asset)
+
+            self.assertFalse((app / "clipman-server").exists())
+            for path, data in original.items():
+                self.assertEqual(data, path.read_bytes(), str(path))
 
     def test_client_releases_and_prereleases_are_ignored(self):
         releases = [

@@ -11,6 +11,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import socket
 import ssl
@@ -423,7 +424,8 @@ def install_managed_native(package_root: Path, app_dir: Path, launcher: Path, co
     launcher.parent.mkdir(parents=True, exist_ok=True)
     temporary = launcher.with_name(launcher.name + ".update")
     temporary.write_text(
-        "#!/usr/bin/env sh\n" + f"exec '{destination}' --config '{config_file}' \"$@\"\n",
+        "#!/usr/bin/env sh\n"
+        + f"exec {shlex.quote(str(destination))} --config {shlex.quote(str(config_file))} \"$@\"\n",
         encoding="utf-8",
     )
     os.chmod(temporary, 0o755)
@@ -656,11 +658,10 @@ def install_update(args: argparse.Namespace, version: str, asset: Dict[str, Any]
 
         run([str(helper), "stop"], check=False)
         try:
-            if managed_program_only:
-                if native_package:
-                    install_managed_native(package_root, app_dir, launcher, config_file)
-                else:
-                    install_managed_program_files(package_root, app_dir)
+            if native_package:
+                install_managed_native(package_root, app_dir, launcher, config_file)
+            elif managed_program_only:
+                install_managed_program_files(package_root, app_dir)
             else:
                 environment = os.environ.copy()
                 environment.update(

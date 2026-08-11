@@ -1,6 +1,6 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-11 (Phase 7 bridge preparation started; build matrices deferred)
+Last updated: 2026-08-11 (Phase 7 historical migration simulations started; build matrices deferred)
 
 Branch: `go-server`
 
@@ -63,9 +63,13 @@ Managed Linux migration installs the native core beside the retained Python file
 
 No external release or asset publication has occurred.
 
+The next Phase 7 slice fixed ordinary historical installations: after validating a native tar, the bridge now installs its native core directly instead of incorrectly looking for the legacy transition ZIP's shell installer. The generated launcher safely quotes paths containing spaces and apostrophes. Isolated tests model the old-updater transition-ZIP selection followed by the bridge updater's same-version native selection, a successful ordinary installation, and a failed native health check. Dummy settings, opaque database bytes, TLS authority material, connection files, service definitions, management helper, and retained Python fallback files are asserted byte-for-byte across the relevant paths.
+
+Current verification is 60 historical Python tests passing with three Linux-only skips on Windows, plus `go test ./...`, `go vet ./...`, and `git diff --check`.
+
 ## Recommended next action
 
-Continue Phase 7 with isolated simulations of each supported historical updater/install layout. Exercise the full before/update/health-failure/rollback sequence against dummy settings, data, TLS material, and Python fallback files, then run compatibility `package` mode against each successful native transition. Add manual-recovery documentation before publishing anything. After bridge behavior is proven, proceed to Phase 8; return to native builds, platform wrappers, Linux/Docker execution, and package matrices at the end as directed.
+Continue Phase 7 by adding fixtures from additional supported historical releases and running compatibility `package` mode against an actual installed native artifact after a successful transition and after forced rollback. Add manual-recovery documentation before publishing anything. After bridge behavior is proven, proceed to Phase 8; return to native builds, platform wrappers, Linux/Docker execution, and package matrices at the end as directed.
 
 Before changing files, run:
 
