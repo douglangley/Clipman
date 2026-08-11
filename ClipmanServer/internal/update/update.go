@@ -1,7 +1,9 @@
 package update
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -137,6 +139,9 @@ func (m Manifest) Select(goos, goarch string) (Artifact, error) {
 	return Artifact{}, fmt.Errorf("package has no artifact for %s/%s", goos, goarch)
 }
 func ExtractPackage(zipPath, destination string) (Manifest, string, error) {
+	if strings.HasSuffix(strings.ToLower(zipPath), ".tar.gz") || strings.HasSuffix(strings.ToLower(zipPath), ".tgz") {
+		return extractTarGz(zipPath, destination)
+	}
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return Manifest{}, "", err
@@ -208,6 +213,132 @@ func ExtractPackage(zipPath, destination string) (Manifest, string, error) {
 	}
 	manifest, err := ParseManifest(data)
 	return manifest, filepath.Dir(manifests[0]), err
+}
+
+func extractTarGz(archivePath, destination string) (Manifest, string, error) {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return Manifest{}, "", err
+	}
+	defer file.Close()
+	compressed, err := gzip.NewReader(file)
+	if err != nil {
+		return Manifest{}, "", err
+	}
+	defer compressed.Close()
+	reader := tar.NewReader(compressed)
+	if err = os.MkdirAll(destination, 0o700); err != nil {
+		return Manifest{}, "", err
+	}
+	entries := 0
+	var total int64
+	for {
+		header, nextErr := reader.Next()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return Manifest{}, "", nextErr
+		}
+		entries++
+		if entries > MaxEntries {
+			return Manifest{}, "", errors.New("update package contains too many files")
+		}
+		if !safeRelative(header.Name) {
+			return Manifest{}, "", fmt.Errorf("unsafe archive entry: %s", header.Name)
+		}
+		if header.Size < 0 || header.Size > MaxExtractedBytes-total {
+			return Manifest{}, "", errors.New("extracted update would be unexpectedly large")
+		}
+		total += header.Size
+		target := filepath.Join(destination, filepath.FromSlash(header.Name))
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err = os.MkdirAll(target, 0o755); err != nil {
+				return Manifest{}, "", err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err = os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return Manifest{}, "", err
+			}
+			mode := os.FileMode(0o644)
+			if header.Mode&0o111 != 0 {
+				mode = 0o755
+			}
+			out, createErr := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+			if createErr != nil {
+				return Manifest{}, "", createErr
+			}
+			_, copyErr := io.CopyN(out, reader, header.Size)
+			closeErr := out.Close()
+			if copyErr != nil {
+				return Manifest{}, "", copyErr
+			}
+			if closeErr != nil {
+				return Manifest{}, "", closeErr
+			}
+		default:
+			return Manifest{}, "", fmt.Errorf("unsafe archive entry type: %s", header.Name)
+		}
+	}
+	return findExtractedManifest(destination)
+}
+
+func findExtractedManifest(destination string) (Manifest, string, error) {
+	manifests := []string{}
+	err := filepath.WalkDir(destination, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr == nil && !d.IsDir() && d.Name() == "manifest-v2.json" {
+			manifests = append(manifests, path)
+		}
+		return walkErr
+	})
+	if err != nil {
+		return Manifest{}, "", err
+	}
+	if len(manifests) != 1 {
+		return Manifest{}, "", errors.New("update package did not contain exactly one manifest-v2.json")
+	}
+	data, err := os.ReadFile(manifests[0])
+	if err != nil {
+		return Manifest{}, "", err
+	}
+	manifest, err := ParseManifest(data)
+	return manifest, filepath.Dir(manifests[0]), err
+}
+
+func ReadReleases(ctx context.Context, apiURL string) ([]Release, error) {
+	if !strings.HasPrefix(strings.ToLower(apiURL), "https://") {
+		return nil, errors.New("release API must use HTTPS")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("User-Agent", "Clipman-Server-Go-Updater")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.Request.URL.Scheme != "https" {
+		return nil, errors.New("release API redirected outside HTTPS")
+	}
+	if response.StatusCode != 200 {
+		return nil, fmt.Errorf("release API returned %s", response.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, 2<<20+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 2<<20 {
+		return nil, errors.New("release API response was unexpectedly large")
+	}
+	var releases []Release
+	if err = json.Unmarshal(data, &releases); err != nil {
+		return nil, err
+	}
+	return releases, nil
 }
 func VerifyArtifact(root string, a Artifact) (string, error) {
 	path := filepath.Join(root, filepath.FromSlash(a.Path))

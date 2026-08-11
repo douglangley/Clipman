@@ -316,15 +316,7 @@ case "\${1:-help}" in
   prune)
     DAYS="\${2:-}"
     if [ -z "\$DAYS" ]; then
-      DAYS="\$(python3 - "\$CONFIG_FILE" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-settings = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
-print(settings.get("DatabasePruneDays", 0))
-PY
-)"
+      DAYS="\$("\$LAUNCHER" --show-database-prune-days)"
     fi
     if [ -z "\$DAYS" ] || [ "\$DAYS" = "0" ]; then
       echo "DatabasePruneDays is 0, so automatic stale database cleanup is disabled." >&2
@@ -369,24 +361,17 @@ PY
   host)
     HOST="\${2:-}"
     if [ -z "\$HOST" ]; then
-      python3 - "\$CONFIG_FILE" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-settings = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
-print(settings.get("Host", "127.0.0.1"))
-PY
+      "\$LAUNCHER" --show-host
       exit 0
     fi
     ADVERTISE_HOST="\${3:-}"
     if [ -n "\$ADVERTISE_HOST" ]; then
-      exec python3 "\$APP_DIR/clipman_server_updater.py" --set-host "\$HOST" --advertise-host "\$ADVERTISE_HOST" \
+      run_offline_maintenance "\$APP_DIR/clipman-server-updater" --set-host "\$HOST" --advertise-host "\$ADVERTISE_HOST" \
         --current-version "\$("\$LAUNCHER" --version)" --app-dir "\$APP_DIR" \
         --bin-dir "$BIN_DIR" --config "\$CONFIG_FILE" --service-file "\$SERVICE_FILE" \
         --init-system "\$INIT_SYSTEM"
     fi
-    exec python3 "\$APP_DIR/clipman_server_updater.py" --set-host "\$HOST" \
+    run_offline_maintenance "\$APP_DIR/clipman-server-updater" --set-host "\$HOST" \
       --current-version "\$("\$LAUNCHER" --version)" --app-dir "\$APP_DIR" \
       --bin-dir "$BIN_DIR" --config "\$CONFIG_FILE" --service-file "\$SERVICE_FILE" \
       --init-system "\$INIT_SYSTEM"
@@ -427,14 +412,14 @@ PY
     "\$LAUNCHER" --version
     ;;
   check-update)
-    exec python3 "\$APP_DIR/clipman_server_updater.py" --check \
+    "\$APP_DIR/clipman-server-updater" --check \
       --current-version "\$("\$LAUNCHER" --version)" --app-dir "\$APP_DIR" \
       --bin-dir "$BIN_DIR" --config "\$CONFIG_FILE" --service-file "\$SERVICE_FILE" \
       --init-system "\$INIT_SYSTEM"
     ;;
   update)
     shift 2>/dev/null || true
-    exec python3 "\$APP_DIR/clipman_server_updater.py" --install "\$@" \
+    run_offline_maintenance "\$APP_DIR/clipman-server-updater" --install "\$@" \
       --current-version "\$("\$LAUNCHER" --version)" --app-dir "\$APP_DIR" \
       --bin-dir "$BIN_DIR" --config "\$CONFIG_FILE" --service-file "\$SERVICE_FILE" \
       --init-system "\$INIT_SYSTEM"

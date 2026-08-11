@@ -38,3 +38,16 @@ func TestSuggestPortPrintsOnlyPersistentPort(t *testing.T) {
 		t.Fatalf("unexpected port output %q", stdout.String())
 	}
 }
+
+func TestWrapperSettingQueries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--config", path, "--host", "127.0.0.9", "--show-host"}, "test", &stdout, &stderr); code != 0 || strings.TrimSpace(stdout.String()) != "127.0.0.9" {
+		t.Fatalf("host code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"--config", path, "--show-database-prune-days"}, "test", &stdout, &stderr); code != 0 || strings.TrimSpace(stdout.String()) != "0" {
+		t.Fatalf("days code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}

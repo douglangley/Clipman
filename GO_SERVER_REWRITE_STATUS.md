@@ -50,7 +50,9 @@ Phase 4 updater security and transaction core is implemented. Concrete systemd, 
 
 Continue Phase 5 from its first native-packaging slice. Windows now embeds/launches `clipman-server.exe`; macOS packages/launches a universal `clipman-server`; Docker is a Go multi-stage/Alpine runtime without Python or OpenSSL; and the transition bundle builds Linux amd64, arm64, and armv7 server/updater binaries with manifest v2. The Windows C# wrapper compiled locally and Go test/vet passed; Docker and macOS execution require their platform environments.
 
-Next, finish the Linux user/system helper migration: remove its remaining inline Python settings reads and legacy Python updater calls, connect native updater service adapters, and update installer tests/fixtures for native binaries. Then exercise Windows extraction/version/restart and macOS packaging on their actual platforms, build multi-architecture containers, and add package-mode update/rollback tests.
+The Linux user/system helper migration now uses native settings queries and the native updater for check, install, and host changes. The Go updater accepts deployed helper options, performs HTTPS release discovery, supports native `.tar.gz` as well as transition `.zip` packages, and runs helper-controlled offline maintenance. Unit coverage includes tar extraction and wrapper settings queries.
+
+Next, add exact platform-native archive generation/naming and full package-mode update/rollback tests, including byte-for-byte settings/data preservation. Then exercise Windows extraction/version/restart and macOS packaging on their actual platforms and build the multi-architecture containers.
 
 Before changing files, run:
 

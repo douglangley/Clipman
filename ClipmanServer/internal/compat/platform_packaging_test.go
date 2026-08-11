@@ -18,6 +18,8 @@ func TestNormalDesktopAndContainerLaunchPathsUseNativeCore(t *testing.T) {
 		{"ClipmanServerMac/Sources/ClipmanServer/main.swift", []string{"appendingPathComponent(\"clipman-server\")"}, []string{"findPython", "clipman_server.py"}},
 		{"ClipmanServerDocker/Dockerfile", []string{"FROM golang:", "/usr/local/bin/clipman-server"}, []string{"FROM python:", "openssl"}},
 		{"ClipmanServerDocker/docker-entrypoint.sh", []string{"SERVER_BINARY", "exec \"$@\""}, []string{"python3", "SERVER_SCRIPT"}},
+		{"ClipmanServerLinux/install-clipman-server.sh", []string{"clipman-server-$NATIVE_ARCH", "clipman-server-updater"}, []string{"python3", "clipman_server.py"}},
+		{"ClipmanServerLinux/install-clipman-server-system-helper.sh", []string{"$APP_DIR/clipman-server", "$APP_DIR/clipman-server-updater"}, []string{"python3", "clipman_server.py"}},
 	}
 	for _, item := range cases {
 		data, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(item.path)))

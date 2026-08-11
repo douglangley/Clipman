@@ -47,6 +47,7 @@ func (s *stringList) Set(value string) error {
 
 type options struct {
 	showVersion, suggestPort, allowInsecureRemote, createTLSCertificate bool
+	showHost, showDatabasePruneDays                                     bool
 	newCA, showCAFingerprint, shareCA, showToken                        bool
 	writeConnectionInfo, createSetupLink, revokeSetupLink               bool
 	listDatabases, listDatabasesJSON, confirm, forceRecent              bool
@@ -115,6 +116,15 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 	}
 	if opts.showToken {
 		fmt.Fprintln(stdout, settings.String("AuthToken"))
+		return 0
+	}
+	if opts.showHost {
+		fmt.Fprintln(stdout, settings.String("Host"))
+		return 0
+	}
+	if opts.showDatabasePruneDays {
+		days, _ := settings.Int("DatabasePruneDays")
+		fmt.Fprintln(stdout, days)
 		return 0
 	}
 	if opts.createTLSCertificate {
@@ -257,6 +267,8 @@ func parseOptions(args []string, defaultConfig string) (options, error) {
 	set.StringVar(&result.shareHost, "share-host", "", "share host")
 	set.BoolVar(&result.allowInsecureRemote, "allow-insecure-remote", false, "allow remote HTTP")
 	set.BoolVar(&result.showToken, "show-token", false, "show token")
+	set.BoolVar(&result.showHost, "show-host", false, "show configured listen host")
+	set.BoolVar(&result.showDatabasePruneDays, "show-database-prune-days", false, "show configured database prune age")
 	set.BoolVar(&result.writeConnectionInfo, "write-connection-info", false, "write connection files")
 	set.BoolVar(&result.createSetupLink, "create-setup-link", false, "create setup link")
 	set.BoolVar(&result.revokeSetupLink, "revoke-setup-link", false, "revoke setup link")

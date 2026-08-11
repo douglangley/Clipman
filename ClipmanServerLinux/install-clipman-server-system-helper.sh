@@ -264,23 +264,18 @@ case "${1:-help}" in
   status) service_action status ;;
   version) server_version ;;
   check-update) updater --check ;;
-  update) require_root; shift; updater --install "$@" ;;
+  update) require_root; shift; run_offline_maintenance updater --install "$@" ;;
   host)
     HOST="${2:-}"
     if [ -z "$HOST" ]; then
-      python3 - "$CONFIG" <<'PY'
-import json, sys
-from pathlib import Path
-settings = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
-print(settings.get("Host", "127.0.0.1"))
-PY
+      "$SERVER" --show-host
       exit 0
     fi
     require_root
     if [ -n "${3:-}" ]; then
-      updater --set-host "$HOST" --advertise-host "$3"
+      run_offline_maintenance updater --set-host "$HOST" --advertise-host "$3"
     else
-      updater --set-host "$HOST"
+      run_offline_maintenance updater --set-host "$HOST"
     fi
     ;;
   port)
@@ -319,13 +314,7 @@ PY
     require_root
     DAYS="${2:-}"
     if [ -z "$DAYS" ]; then
-      DAYS="$(python3 - "$CONFIG" <<'PY'
-import json, sys
-from pathlib import Path
-settings = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
-print(settings.get("DatabasePruneDays", 0))
-PY
-)"
+      DAYS="$("$SERVER" --show-database-prune-days)"
     fi
     if [ -z "$DAYS" ] || [ "$DAYS" = "0" ]; then
       echo "DatabasePruneDays is 0, so stale database cleanup is disabled." >&2

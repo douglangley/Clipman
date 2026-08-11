@@ -1,7 +1,9 @@
 package update
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -64,6 +66,40 @@ func TestPackageExtractionAndArtifactVerification(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(verified); string(data) != string(binary) {
 		t.Fatal("verified artifact mismatch")
+	}
+}
+
+func TestTarGzPackageExtraction(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "package.tar.gz")
+	file, _ := os.Create(path)
+	compressed := gzip.NewWriter(file)
+	writer := tar.NewWriter(compressed)
+	binary := []byte("linux-server")
+	sum := sha256.Sum256(binary)
+	manifest := []byte(`{"format_version":2,"name":"Clipman Server","version":"3.0.0","artifacts":[{"os":"linux","architecture":"amd64","path":"bin/clipman-server","sha256":"` + hex.EncodeToString(sum[:]) + `","executable":true}]}`)
+	for name, data := range map[string][]byte{"package/manifest-v2.json": manifest, "package/bin/clipman-server": binary} {
+		header := &tar.Header{Name: name, Mode: 0o755, Size: int64(len(data)), Typeflag: tar.TypeReg}
+		if err := writer.WriteHeader(header); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = writer.Close()
+	_ = compressed.Close()
+	_ = file.Close()
+	m, root, err := ExtractPackage(path, filepath.Join(dir, "out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := m.Select("linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = VerifyArtifact(root, artifact); err != nil {
+		t.Fatal(err)
 	}
 }
 func TestFailedHealthRollsBack(t *testing.T) {
