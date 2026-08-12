@@ -19,9 +19,14 @@ ENV CLIPMAN_PORT=8080
 COPY --from=build /out/clipman-server /usr/local/bin/clipman-server
 COPY ClipmanServerDocker/docker-entrypoint.sh /usr/local/bin/clipman-server-entrypoint
 RUN apk add --no-cache ca-certificates \
+    && addgroup -S -g 10001 clipman \
+    && adduser -S -D -H -u 10001 -G clipman clipman \
+    && mkdir -p /data \
+    && chown clipman:clipman /data \
     && chmod +x /usr/local/bin/clipman-server /usr/local/bin/clipman-server-entrypoint
 
 VOLUME ["/data"]
 EXPOSE 8080
 
+USER 10001:10001
 ENTRYPOINT ["clipman-server-entrypoint"]

@@ -245,6 +245,17 @@ stop_for_maintenance() {
   fi
 }
 
+start_unmanaged() {
+  nohup "\$LAUNCHER" >/dev/null 2>&1 &
+  server_pid=\$!
+  sleep 1
+  if ! kill -0 "\$server_pid" 2>/dev/null; then
+    wait "\$server_pid" 2>/dev/null || true
+    echo "Clipman Server failed to start. Run clipmanserver console to see the error." >&2
+    return 1
+  fi
+}
+
 start_after_maintenance() {
   if has_user_service; then
     case "\$INIT_SYSTEM" in
@@ -252,7 +263,7 @@ start_after_maintenance() {
       runit) runit_command start "\$SERVICE_FILE" ;;
     esac
   else
-    nohup "\$LAUNCHER" >/dev/null 2>&1 &
+    start_unmanaged
   fi
 }
 
@@ -284,17 +295,17 @@ case "\${1:-help}" in
   start)
     if has_user_service; then
       service_command start
+    elif server_is_running; then
+      echo "Clipman Server is already running."
     else
-      nohup "\$LAUNCHER" >/dev/null 2>&1 &
+      if ! start_unmanaged; then
+        exit 1
+      fi
       echo "Clipman Server started."
     fi
     ;;
   stop)
-    if has_user_service; then
-      service_command stop
-    else
-      pkill -f "$APP_DIR/clipman-server --config \$CONFIG_FILE" 2>/dev/null || true
-    fi
+    stop_for_maintenance
     ;;
   restart)
     "\$0" stop
@@ -308,10 +319,10 @@ case "\${1:-help}" in
     fi
     ;;
   list)
-    "\$LAUNCHER" --list-databases
+    run_offline_maintenance "\$LAUNCHER" --list-databases
     ;;
   list-json)
-    "\$LAUNCHER" --list-databases-json
+    run_offline_maintenance "\$LAUNCHER" --list-databases-json
     ;;
   prune)
     DAYS="\${2:-}"
@@ -370,11 +381,12 @@ case "\${1:-help}" in
         --current-version "\$("\$LAUNCHER" --version)" --app-dir "\$APP_DIR" \
         --bin-dir "$BIN_DIR" --config "\$CONFIG_FILE" --service-file "\$SERVICE_FILE" \
         --init-system "\$INIT_SYSTEM"
+    else
+      run_offline_maintenance "\$APP_DIR/clipman-server-updater" --set-host "\$HOST" \
+        --current-version "\$("\$LAUNCHER" --version)" --app-dir "\$APP_DIR" \
+        --bin-dir "$BIN_DIR" --config "\$CONFIG_FILE" --service-file "\$SERVICE_FILE" \
+        --init-system "\$INIT_SYSTEM"
     fi
-    run_offline_maintenance "\$APP_DIR/clipman-server-updater" --set-host "\$HOST" \
-      --current-version "\$("\$LAUNCHER" --version)" --app-dir "\$APP_DIR" \
-      --bin-dir "$BIN_DIR" --config "\$CONFIG_FILE" --service-file "\$SERVICE_FILE" \
-      --init-system "\$INIT_SYSTEM"
     ;;
   port)
     PORT="\${2:-}"

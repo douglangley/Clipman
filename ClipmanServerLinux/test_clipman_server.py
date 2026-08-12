@@ -70,7 +70,7 @@ class ServerStartupTests(unittest.TestCase):
 
         self.assertIn(write_command, entrypoint)
         self.assertIn(run_command, entrypoint)
-        self.assertLess(entrypoint.index(write_command), entrypoint.index(run_command))
+        self.assertLess(entrypoint.index(write_command), entrypoint.rindex(run_command))
         self.assertIn('SERVER_BINARY="${CLIPMAN_SERVER_BINARY:-/usr/local/bin/clipman-server}"', entrypoint)
         self.assertNotIn('python3 "$@"', entrypoint)
         self.assertIn("CLIPMAN_ALLOW_INSECURE_REMOTE=true only on a trusted LAN or VPN", entrypoint)

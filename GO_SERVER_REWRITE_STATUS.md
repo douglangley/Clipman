@@ -1,6 +1,6 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-11 (full Windows CLI corpus passed; build matrices deferred)
+Last updated: 2026-08-12 (native Linux and Docker install/maintenance matrices exercised)
 
 Branch: `go-server`
 
@@ -74,6 +74,16 @@ The reusable `ClipmanServer/scripts/windows-cli-acceptance.ps1` corpus passed ag
 Client A and client B converged after A-to-B and B-to-A mutations. The same encrypted server bucket then survived Go-to-Python-to-Go process handoff, including a record written while Python owned the data root and read after Go restarted. The final canonical logical-history SHA-256 was `49bc693f12cac07ac0c977d5aaad661daba0ec3a404d5055f1c9f9f4818f10ad`; the final encrypted `.clipdb` SHA-256 was `fa3d5d7d6dd30a947323ca4a1c09c3426e40db924151543186de268671c949bb`. Administrative inventory reported exactly one healthy bucket, 17,704 bytes, with one backup. No personal Clipman settings or data were used.
 
 After the corpus, the full Go server test/vet suite, full CLI test/vet suite, and all 60 Python server/updater/installer tests passed; three Linux-only tests skipped on Windows. Machine-readable results are stored in `ClipmanServer/compat/windows-cli-acceptance-latest.json`.
+
+## Native Linux and Docker verification checkpoint
+
+Real amd64 Go server and updater binaries were built in the Go container and installed with the shipped user installer into isolated non-Docker Linux homes. Fresh install, reinstall with byte-identical settings preservation, start, duplicate start, stop, restart, status, console, token, connection files, setup links, list/list-json, prune, guarded delete, forced delete, host and port changes, update checks, and no-op current-version update all passed. Unmanaged automatic-update enable/status correctly refuse because they require an installed service manager; systemd and runit command paths remain covered by isolated installer integration tests. No uninstall command exists yet.
+
+Private-CA TLS was exercised through the installed helper. Certificate creation, authenticated HTTPS health, connection-file regeneration, fingerprint display, renewal with byte-identical CA preservation, and one-time CA sharing with a byte-identical downloaded public certificate passed. The matrix exposed and fixed unmanaged restart racing the data-root lock, live list commands violating that lock, duplicate start reporting false success, and a two-address host update running twice.
+
+The production Docker image builds and runs on amd64 without Python or OpenSSL, runs as UID/GID 10001, supports Docker command overrides, accepts a read-only root filesystem with `/data` writable, preserves volume state across restart, answers health checks, and exits cleanly on SIGTERM. An arm64 build was attempted, but this amd64 host has no ARM binfmt/QEMU registration, so execution stopped with `exec format error`; arm64 runtime validation remains for an arm64 runner or a host with emulation configured.
+
+After these fixes, all 60 Linux Python server/updater/installer compatibility tests pass, `go test ./...` and `go vet ./...` pass from the full repository mount, installer shell syntax passes, and `git diff --check` is clean.
 
 ## Recommended next action
 

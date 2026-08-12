@@ -12,6 +12,14 @@ CERT_FILE="${CLIPMAN_CERT_FILE:-}"
 KEY_FILE="${CLIPMAN_KEY_FILE:-}"
 SERVER_BINARY="${CLIPMAN_SERVER_BINARY:-/usr/local/bin/clipman-server}"
 
+# Preserve normal Docker command overrides while making server flags convenient.
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    -*) exec "$SERVER_BINARY" "$@" ;;
+    *) exec "$@" ;;
+  esac
+fi
+
 mkdir -p "$DATA_DIR" "$(dirname "$LOG_PATH")"
 
 if [ "${CLIPMAN_SELF_SIGNED_CERT:-}" = "true" ] && [ -z "$CERT_FILE" ] && [ -z "$KEY_FILE" ]; then

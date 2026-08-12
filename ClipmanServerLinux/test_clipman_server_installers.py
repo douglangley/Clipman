@@ -32,7 +32,7 @@ class LinuxInstallerTests(unittest.TestCase):
             self.linux / "install-clipman-server-system-helper.sh",
         )
         self._write_executable(
-            self.package / "clipman_server.py",
+            self.linux / "clipman-server-amd64",
             """
             #!/usr/bin/env python3
             import json
@@ -62,7 +62,7 @@ class LinuxInstallerTests(unittest.TestCase):
             """,
         )
         self._write_executable(
-            self.package / "clipman_server_updater.py",
+            self.linux / "clipman-server-updater-amd64",
             """
             #!/usr/bin/env python3
             import os
@@ -159,7 +159,10 @@ class LinuxInstallerTests(unittest.TestCase):
         self.assertTrue((server_service / "down").is_file())
         self.assertTrue((update_service / "run").is_file())
         self.assertTrue((update_service / "down").is_file())
-        self.assertIn("CLIPMAN_SERVER_INIT_SYSTEM=\"$INIT_SYSTEM\"", helper.read_text(encoding="utf-8"))
+        helper_text = helper.read_text(encoding="utf-8")
+        self.assertIn('CLIPMAN_SERVER_INIT_SYSTEM="$INIT_SYSTEM"', helper_text)
+        self.assertIn("start_unmanaged()", helper_text)
+        self.assertIn('run_offline_maintenance "$LAUNCHER" --list-databases', helper_text)
 
         self._mark_supervised(server_service)
         self._mark_supervised(update_service)
@@ -244,7 +247,7 @@ class LinuxInstallerTests(unittest.TestCase):
         service.mkdir(parents=True)
         active_root.mkdir(parents=True)
         self._write_executable(
-            app / "clipman_server.py",
+            app / "clipman-server",
             """
             #!/usr/bin/env python3
             import os
@@ -256,7 +259,7 @@ class LinuxInstallerTests(unittest.TestCase):
                     stream.write("server " + " ".join(sys.argv[1:]) + "\\n")
             """,
         )
-        (app / "clipman_server_updater.py").write_text("updater", encoding="utf-8")
+        self._write_executable(app / "clipman-server-updater", "updater")
         config.write_text("{}", encoding="utf-8")
         self._write_executable(service / "run", "#!/usr/bin/env sh\nexit 0\n")
         original_run = (service / "run").read_bytes()
