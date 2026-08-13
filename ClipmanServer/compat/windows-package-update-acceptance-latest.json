@@ -1,0 +1,34 @@
+{
+  "date": "2026-08-13",
+  "platform": "windows-amd64",
+  "result": "pass",
+  "server_version": "2.6.2-dev",
+  "native_archive_install": true,
+  "installed_artifact_digest_matched": true,
+  "package_mode_after_install": true,
+  "forced_health_failure_exit_code": 1,
+  "rollback_restored_program_bytes": true,
+  "rollback_preserved_server_state_bytes": true,
+  "package_mode_after_rollback": true,
+  "historical_packages_verified": [
+    "2.1.1",
+    "2.4.3",
+    "2.6.3"
+  ],
+  "commands_covered": [
+    "init",
+    "put",
+    "get",
+    "list",
+    "status --refresh",
+    "sync",
+    "rm"
+  ],
+  "data_cases": [
+    "utf-8",
+    "combining-characters",
+    "crlf",
+    "nul"
+  ],
+  "notes": "The run used an isolated marked test root and loopback endpoint. The bearer token, dummy password, database ID, test paths, and generated server state are not recorded."
+}

@@ -70,6 +70,20 @@
       "owner": "package-sandbox",
       "platforms": ["windows", "linux", "darwin"],
       "status": "implemented"
+    },
+    {
+      "id": "update.historical-bridge-packages",
+      "surface": "updater",
+      "owner": "historical-package-fixtures",
+      "platforms": ["linux"],
+      "status": "implemented"
+    },
+    {
+      "id": "package.installed-cli-smoke",
+      "surface": "package",
+      "owner": "package-sandbox",
+      "platforms": ["windows", "linux", "darwin"],
+      "status": "implemented"
     }
   ]
 }

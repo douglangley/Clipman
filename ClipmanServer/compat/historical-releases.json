@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "releases": [
+    {
+      "version": "2.1.1",
+      "tag": "server-v2.1.1",
+      "published_at": "2026-07-25T05:44:28Z",
+      "asset": {
+        "name": "ClipmanServer-2.1.1.zip",
+        "size": 180343,
+        "sha256": "65c69e7b213373e9c82a3d9afc73bce184e6162d1ef1728d960a8f4469ffe44c"
+      },
+      "package_root": "ClipmanServer",
+      "files": [
+        {
+          "path": "manifest.json",
+          "size": 370,
+          "sha256": "68a72b2d63e5ebd521fd8c2e632a31c5a7d9e2b64be4ad3e77ea12062ff504ca"
+        },
+        {
+          "path": "clipman_server.py",
+          "size": 59482,
+          "sha256": "30f55767b4eb1e13b00c8240278eac8838ed7070dd84827e393a4727a165b287"
+        },
+        {
+          "path": "clipman_server_updater.py",
+          "size": 12241,
+          "sha256": "37054adc544477088335d6cd2d38a999f1081bb9beb590e5ea69d965233a5d87"
+        },
+        {
+          "path": "Linux/install-clipman-server.sh",
+          "size": 9147,
+          "sha256": "5d50fdfbac68529622514ffb315dc116de3808e0ffea95c8e0be8f9d3bfb912e"
+        }
+      ],
+      "capabilities": {
+        "set_host": false,
+        "managed_program_only": false,
+        "init_system": false,
+        "runit": false,
+        "system_helper": false
+      }
+    },
+    {
+      "version": "2.4.3",
+      "tag": "server-v2.4.3",
+      "published_at": "2026-07-31T05:42:04Z",
+      "asset": {
+        "name": "ClipmanServer-2.4.3.zip",
+        "size": 205327,
+        "sha256": "02f54cf08f18c53314872f3a2e25862b527bc74de1e154548dabaa77a3b32047"
+      },
+      "package_root": "ClipmanServer",
+      "files": [
+        {
+          "path": "manifest.json",
+          "size": 370,
+          "sha256": "01b89f4d7b040c7ea23dcc48508622c754394327ae995212792058fe3b26daed"
+        },
+        {
+          "path": "clipman_server.py",
+          "size": 66878,
+          "sha256": "f5a42f3cab181ff221b620feb9140d477ceb88bae6ae7e2597c8d9df833fd7e7"
+        },
+        {
+          "path": "clipman_server_updater.py",
+          "size": 22687,
+          "sha256": "631fa6c15ad93154dbebcd01f4fd3e7c33a25c88ec411eb4745446cf3900c800"
+        },
+        {
+          "path": "Linux/install-clipman-server.sh",
+          "size": 10766,
+          "sha256": "6cddb12c8f27800c3f17c0f1d5f33a31377656a8a41fe4078196507072ca577a"
+        }
+      ],
+      "capabilities": {
+        "set_host": true,
+        "managed_program_only": true,
+        "init_system": false,
+        "runit": false,
+        "system_helper": true
+      }
+    },
+    {
+      "version": "2.6.3",
+      "tag": "server-v2.6.3",
+      "published_at": "2026-08-10T20:36:11Z",
+      "asset": {
+        "name": "ClipmanServer-2.6.3.zip",
+        "size": 234097,
+        "sha256": "d09117b6aaadd69eb0b9311dd62d17781bc028a4a4f153de9b837e48c24aae09"
+      },
+      "package_root": "ClipmanServer",
+      "files": [
+        {
+          "path": "manifest.json",
+          "size": 370,
+          "sha256": "aa80ba4d6eab8a9269531a013c542955a626d85a0ae67febca68bcffc1d65b9e"
+        },
+        {
+          "path": "clipman_server.py",
+          "size": 87511,
+          "sha256": "5ece8f57fd39d33598cea2b52eb85199f7059069ee033ff994c67d50ce092d9e"
+        },
+        {
+          "path": "clipman_server_updater.py",
+          "size": 26032,
+          "sha256": "237a4de86795e5c850bd787986a50a5d7c2de1cb424669413276211e980ee99d"
+        },
+        {
+          "path": "Linux/install-clipman-server.sh",
+          "size": 20831,
+          "sha256": "c284553260f6ee3c442df27c5367e90be1ee2f02b4cef3f55f3996faeebb855c"
+        }
+      ],
+      "capabilities": {
+        "set_host": true,
+        "managed_program_only": true,
+        "init_system": true,
+        "runit": true,
+        "system_helper": true
+      }
+    }
+  ]
+}

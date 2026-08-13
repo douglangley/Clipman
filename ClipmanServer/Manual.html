@@ -309,6 +309,18 @@ clipmanserver update</code></pre>
 
   <p>Every server updater downloads the exact versioned server ZIP over HTTPS and requires its GitHub SHA-256 digest before replacing program files. Linux additionally rejects unsafe archive paths, checks the package manifest, and stages the replacement. A normal per-user update backs up its installed program, launcher, helper, and service files. A system-managed update snapshots only the program files it is permitted to replace. Neither mode includes settings, databases, logs, backups, certificates, or tokens. After installation it restarts the server and checks the health endpoint. If the updated service does not become healthy, the previous program files are restored and restarted automatically.</p>
 
+  <h3 id="update-recovery">Manual Update Recovery</h3>
+  <p>An update failure should require recovery of program files only. Do not delete, replace, or move the server settings directory, <code>Databases</code>, <code>DeletedDatabases</code>, TLS directory, connection files, or logs. Those files are deliberately outside the program update transaction and are readable by both the Python bridge and native Go server.</p>
+
+  <ol>
+    <li>Stop the wrapper or service before replacing a program manually. On Linux, run <code>clipmanserver stop</code> when the helper still works; otherwise stop the same systemd or runit service directly.</li>
+    <li>Keep the failed package and the server log until the cause is understood. Record the updater error and current program version, but redact bearer tokens, setup URLs, database IDs, and private keys before sharing diagnostics.</li>
+    <li>Reinstall the last known-good, digest-verified server package for the same operating system and architecture. On Windows, replace only the Clipman Server wrapper EXE; on macOS, replace only <code>Clipman Server.app</code>; on Linux, rerun the known-good installer with the same user/system and custom-directory settings used originally. Administrators of externally managed Linux services must retain their existing service file, account, settings path, helper path, ownership, and permissions.</li>
+    <li>Start the wrapper or service and verify that <code>/api/v1/health</code> reports <code>Status: ok</code>. Then run a client <code>status --refresh</code> against the existing connection to prove the preserved encrypted bucket can still be read. Do not create a new token, private authority, or data root merely to recover the program.</li>
+  </ol>
+
+  <p>If the previous program also fails, leave the persistent state untouched and start the known-good server in a console with its existing settings path so the first startup error is visible. Check port ownership, file ownership and permissions, certificate paths, and the data-root lock before changing configuration. A rollback that reaches the health endpoint but cannot read an existing bucket is not complete; stop and preserve the affected files for diagnosis.</p>
+
   <p>New Linux installations support automatic daily updates with a systemd user timer or a supervised runit update service. Use these commands to inspect, enable or disable them:</p>
 
   <pre><code>clipmanserver enable-auto-updates

@@ -1,6 +1,6 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-13 (native macOS wrapper/package and server-function matrix exercised)
+Last updated: 2026-08-13 (package mode, historical fixtures, and forced rollback exercised)
 
 Branch: `go-server`
 
@@ -57,7 +57,7 @@ Phase 2 is not fully release-gated. Complete runtime counters and health parity,
 
 Phase 3 server-core behavior is implemented. Live macOS certificate sharing now passes; still expand raw differential coverage, RSA legacy-fixture verification, setup-link expiry/HEAD cases, and exact stable-output comparisons with Python.
 
-Phase 4 updater security and transaction core is implemented. The macOS wrapper now performs staged app replacement, nested-code validation, local health checking, and rollback. Concrete Windows service/update coverage and remaining systemd/runit/external package paths stay coupled to Phase 5. Add complete package-mode before/update/rollback tests and prove settings/data remain byte-for-byte unchanged on every failed update.
+Phase 4 updater security and transaction core is implemented. Compatibility `package` mode now drives an already-running isolated package through the real CLI and checks executable/core version agreement. A Windows package sandbox passes after native archive installation and after forced health rollback; it proves the installed program bytes are restored and every persistent server-state byte remains unchanged. The macOS wrapper performs staged app replacement, nested-code validation, local health checking, and rollback. Clean Windows wrapper/service coverage and remaining systemd/runit/external installed-package paths stay coupled to Phase 5.
 
 ## Phase 7 bridge checkpoint
 
@@ -79,6 +79,14 @@ Client A and client B converged after A-to-B and B-to-A mutations. The same encr
 
 After the corpus, the full Go server test/vet suite, full CLI test/vet suite, and all 60 Python server/updater/installer tests passed; three Linux-only tests skipped on Windows. Machine-readable results are stored in `ClipmanServer/compat/windows-cli-acceptance-latest.json`.
 
+## Package mode and historical release checkpoint
+
+Compatibility `package` mode now requires both a loopback endpoint and an explicitly marked `.test-tmp-clipman-server-package-*` root. The bearer-token file must be inside that root. It checks live health and executable/core version agreement, then uses the real CLI with a disposable profile and deterministic dummy password to run `init`, byte-exact `put`/`get`, `list`, `status --refresh`, `sync`, `rm`, and a final sync. Reports contain only the installed version, seed, operation names, and dummy payload digest; they omit tokens, passwords, database IDs, and paths.
+
+Published Python packages 2.1.1, 2.4.3, and 2.6.3 are now pinned in `compat/historical-releases.json` by release-asset size/SHA-256 and by byte-exact manifest, Python server, updater, and Linux installer sizes/digests. Those versions deliberately span the early standard installer, the externally managed updater generation, and the runit-aware updater generation. The validator checks the original ZIPs without extracting them and confirms each generation's manifest, critical files, capabilities, and system-helper layout.
+
+The Windows package sandbox installed a generated native manifest-v2 archive through the real Go updater, ran package mode, attempted an intentionally unhealthy executable replacement, and received the expected failure. The updater restored byte-identical program bytes, left no stale rollback executable, and left settings, databases, metadata, connection files, and logs byte-identical. After restart, package mode passed again. The recorded result is `ClipmanServer/compat/windows-package-update-acceptance-latest.json`.
+
 ## Native Linux and Docker verification checkpoint
 
 Real amd64 Go server and updater binaries were built in the Go container and installed with the shipped user installer into isolated non-Docker Linux homes. Fresh install, reinstall with byte-identical settings preservation, start, duplicate start, stop, restart, status, console, token, connection files, setup links, list/list-json, prune, guarded delete, forced delete, host and port changes, update checks, and no-op current-version update all passed. Unmanaged automatic-update enable/status correctly refuse because they require an installed service manager; systemd and runit command paths remain covered by isolated installer integration tests. No uninstall command exists yet.
@@ -99,7 +107,7 @@ The packaged core passed live macOS checks for health, authenticated conditional
 
 ## Recommended next action
 
-Continue Phase 7 by adding fixtures from additional supported historical releases and running compatibility `package` mode against an actual installed native artifact after a successful transition and after forced rollback. On macOS, run the packaged CLI corpus and installed-app update/forced-rollback flow on clean Intel and Apple Silicon machines, then complete Developer ID signing, notarization, and Gatekeeper assessment. Add manual-recovery documentation before publishing anything. No bridge or native release has been published.
+Continue Phase 7 on Linux by materializing the three byte-pinned historical package layouts, executing each real two-cycle bridge path into a native archive, and running package mode after migration and Python rollback. Extend the same package-mode before/update/rollback contract to systemd, runit, and externally managed installations. On macOS, run the packaged CLI corpus and installed-app update/forced-rollback flow on clean Intel and Apple Silicon machines, then complete Developer ID signing, notarization, and Gatekeeper assessment. No bridge or native release has been published.
 
 Before changing files, run:
 
