@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -107,6 +108,14 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	settings := loaded.Settings
+	if opts.setupBaseURL != "" {
+		validated, validationErr := validateSetupBaseURL(opts.setupBaseURL)
+		if validationErr != nil {
+			fmt.Fprintf(stderr, "Could not save SetupBaseUrl: %v\n", validationErr)
+			return 2
+		}
+		opts.setupBaseURL = validated
+	}
 	changed := applyOverrides(settings, opts)
 	if changed {
 		if err = config.Save(configPath, settings); err != nil {
@@ -114,6 +123,7 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
+	refreshConnectionFiles(configPath, settings, loaded.Created, opts.writeConnectionInfo, stderr)
 	if opts.showToken {
 		fmt.Fprintln(stdout, settings.String("AuthToken"))
 		return 0
@@ -190,23 +200,15 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 	}
 	setupManager := &onboarding.Manager{ConfigPath: configPath}
 	if opts.createSetupLink {
+		base, baseErr := setupBaseURL(settings)
+		if baseErr != nil {
+			fmt.Fprintf(stderr, "Could not create the temporary setup link: %v\n", baseErr)
+			return 1
+		}
 		code, state, createErr := setupManager.Create(opts.setupMinutes, opts.setupDownloads)
 		if createErr != nil {
 			fmt.Fprintf(stderr, "Could not create the temporary setup link: %v\n", createErr)
 			return 1
-		}
-		base := strings.TrimRight(settings.String("SetupBaseUrl"), "/")
-		if base == "" {
-			scheme := "http"
-			if settings.String("CertFile") != "" {
-				scheme = "https"
-			}
-			host := settings.String("AdvertiseHost")
-			if host == "" {
-				host = settings.String("Host")
-			}
-			port, _ := settings.Int("Port")
-			base = fmt.Sprintf("%s://%s:%d", scheme, host, port)
 		}
 		fmt.Fprintf(stdout, "Setup URL: %s/setup/%s\nExpires: %s\nConnection-file downloads: %d\nRevoke early with --revoke-setup-link.\n", base, code, time.UnixMilli(state.ExpiresUnixMS).UTC().Format("2006-01-02 15:04 UTC"), state.RemainingDownloads)
 		return 0
@@ -237,6 +239,58 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		return runDatabaseAdministration(settings, opts, stdout, stderr)
 	}
 	return runHTTP(settings, configPath, version, stdout, stderr)
+}
+
+func refreshConnectionFiles(configPath string, settings config.Settings, created, forced bool, stderr io.Writer) {
+	directory := filepath.Dir(configPath)
+	textPath := filepath.Join(directory, "clipman-server-connection.txt")
+	configFilePath := filepath.Join(directory, "clipman-server-connection.clpconf")
+	_, textErr := os.Stat(textPath)
+	_, configErr := os.Stat(configFilePath)
+	if !forced && !created && errors.Is(textErr, os.ErrNotExist) && errors.Is(configErr, os.ErrNotExist) {
+		return
+	}
+	if _, _, err := onboarding.WriteConnectionFiles(configPath, settings); err != nil && forced {
+		fmt.Fprintf(stderr, "Could not write the Clipman Server connection files: %v\n", err)
+	}
+}
+
+func validateSetupBaseURL(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return "", errors.New("SetupBaseUrl must be an HTTP or HTTPS URL with a host name")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("SetupBaseUrl cannot contain credentials, a query, or a fragment")
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return "", errors.New("SetupBaseUrl must not contain a path")
+	}
+	if parsed.Scheme == "http" && !isLocalOrPrivateHost(parsed.Hostname()) {
+		return "", errors.New("a public temporary setup page requires HTTPS")
+	}
+	return strings.TrimRight(value, "/"), nil
+}
+
+func setupBaseURL(settings config.Settings) (string, error) {
+	if configured := settings.String("SetupBaseUrl"); configured != "" {
+		return validateSetupBaseURL(configured)
+	}
+	host := settings.String("AdvertiseHost")
+	if host == "" {
+		host = settings.String("Host")
+	}
+	cleanHost := strings.Trim(host, "[]")
+	if settings.String("CertFile") == "" && !isLocalOrPrivateHost(cleanHost) {
+		return "", errors.New("a public temporary setup page requires HTTPS; configure SetupBaseUrl with the public HTTPS address")
+	}
+	scheme := "http"
+	if settings.String("CertFile") != "" {
+		scheme = "https"
+	}
+	port, _ := settings.Int("Port")
+	return fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(cleanHost, strconv.Itoa(port))), nil
 }
 
 func parseOptions(args []string, defaultConfig string) (options, error) {
@@ -653,6 +707,31 @@ func newHandler(settings config.Settings, configPath, version string, stats *run
 		if !authorized(request, settings.String("AuthToken")) {
 			writeText(writer, http.StatusUnauthorized, "Unauthorized")
 			stats.record(request, http.StatusUnauthorized, false, 0, int64(len("Unauthorized")))
+			return
+		}
+		if path == "/api/v1/backup" && request.Method == http.MethodPost {
+			writeText(writer, http.StatusNotFound, "Use a database-scoped backup endpoint")
+			stats.record(request, http.StatusNotFound, false, 0, int64(len("Use a database-scoped backup endpoint")))
+			return
+		}
+		if path == "/api/v1/backups" && request.Method == http.MethodGet {
+			items, listErr := (admin.Manager{Root: filepath.Dir(settings.String("DatabasePath"))}).ListBackups()
+			if listErr != nil {
+				writeText(writer, http.StatusInternalServerError, "Internal server error")
+				stats.record(request, http.StatusInternalServerError, false, 0, int64(len("Internal server error")))
+				return
+			}
+			data, _ := config.Marshal(map[string]any{"Backups": items})
+			writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+			writer.Header().Set("Content-Length", strconv.Itoa(len(data)))
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write(data)
+			stats.record(request, http.StatusOK, false, 0, int64(len(data)))
+			return
+		}
+		if path == "/api/v1/restore" && request.Method == http.MethodPost {
+			writeText(writer, http.StatusNotFound, "Use a database-scoped restore endpoint")
+			stats.record(request, http.StatusNotFound, false, 0, int64(len("Use a database-scoped restore endpoint")))
 			return
 		}
 		prefix := "/api/v1/database/"

@@ -1,12 +1,12 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-12 (native Linux and Docker install/maintenance matrices exercised)
+Last updated: 2026-08-13 (native macOS wrapper/package and server-function matrix exercised)
 
 Branch: `go-server`
 
 ## Resume point
 
-The committed implementation is safe to resume from. The rewrite checkpoints through the first Phase 7 slice, oldest first, are:
+The implementation is safe to resume from. The rewrite checkpoints through the first Phase 7 slice, oldest first, are:
 
 1. `7a9f365 Start Go server compatibility rewrite`
 2. `534b20f Implement Go database synchronization`
@@ -17,7 +17,7 @@ The committed implementation is safe to resume from. The rewrite checkpoints thr
 7. `f6028cd Start server release compatibility gates`
 8. `7d7f365 Prepare Python to Go bridge updates`
 
-All tracked rewrite progress through the Phase 7 bridge preparation described below is committed. There are no pending tracked implementation edits at this checkpoint.
+The native macOS checkpoint described below follows those commits and is included with this status update. The worktree should be clean after its commit; do not discard or absorb unrelated user files if a later checkout is not clean.
 
 Do not discard or absorb unrelated untracked files shown by `git status`. They predate or are outside the Go rewrite and belong to the user.
 
@@ -28,17 +28,21 @@ Do not discard or absorb unrelated untracked files shown by `git status`. They p
 - Health endpoint and bearer authentication boundary.
 - Database ID validation, revisions, metadata, per-bucket locks, bounded streaming `HEAD`/`GET`, staged atomic conditional `PUT`, and backup hooks.
 - Database inventory, JSON listing, guarded deletion, stale selection/pruning, and recoverable moves to `DeletedDatabases`.
+- Authenticated legacy backup listing plus the compatibility-scoped backup and restore error routes.
 - `.clpconf` and text connection files.
+- First-run wrapper connection-file generation and validated safe setup-base URLs.
 - Expiring and download-limited setup links, setup HTTP routes, redaction, and concurrency-safe consumption.
 - Native-Go RSA private CA and leaf generation, renewal using the existing CA, inspection, fingerprints, TLS settings updates, and temporary public-CA sharing.
 - Standalone `clipman-server-updater` command.
 - Manifest v2 parsing and OS/architecture artifact selection, including same-version Python-to-Go migration selection.
 - HTTPS-only bounded downloads, SHA-256 verification, archive path/symlink/count/expanded-size defenses, staged replacement, service coordination, health checking, and rollback.
+- Universal macOS Swift wrapper and Go core packaging with transactional app replacement and post-relaunch health rollback.
 
 ## Verification completed
 
 - `cd ClipmanServer && go test ./...`
 - `cd ClipmanServer && go vet ./...`
+- `cd ClipmanServer && go test -race ./...` on macOS.
 - Windows builds of the server, updater, and real `clipman-cli`.
 - Real CLI `init`, `put`, `list`, `sync`, and `status` against the Go HTTP server with Unicode dummy data.
 - Go-to-Python-to-Go in-place database handoff with both entries preserved.
@@ -51,9 +55,9 @@ Do not discard or absorb unrelated untracked files shown by `git status`. They p
 
 Phase 2 is not fully release-gated. Complete runtime counters and health parity, raw malformed/conditional/`100-continue` differentials, concurrent first-writer and multi-bucket scenarios, backup characterization, race testing, TLS edge cases, 1 KiB through 64 MiB bounded-memory transfers, and the complete bidirectional Python/Go handoff matrix.
 
-Phase 3 server-core behavior is implemented. Still expand raw differential coverage, RSA legacy-fixture verification, setup-link expiry/HEAD cases, certificate-share tests, and exact stable-output comparisons with Python.
+Phase 3 server-core behavior is implemented. Live macOS certificate sharing now passes; still expand raw differential coverage, RSA legacy-fixture verification, setup-link expiry/HEAD cases, and exact stable-output comparisons with Python.
 
-Phase 4 updater security and transaction core is implemented. Concrete systemd, runit, externally managed Linux, Windows, and macOS service adapters and actual package-script manifest-v2 generation remain coupled to Phase 5. Add complete package-mode before/update/rollback tests and prove settings/data remain byte-for-byte unchanged on every failed update.
+Phase 4 updater security and transaction core is implemented. The macOS wrapper now performs staged app replacement, nested-code validation, local health checking, and rollback. Concrete Windows service/update coverage and remaining systemd/runit/external package paths stay coupled to Phase 5. Add complete package-mode before/update/rollback tests and prove settings/data remain byte-for-byte unchanged on every failed update.
 
 ## Phase 7 bridge checkpoint
 
@@ -85,9 +89,17 @@ The production Docker image builds and runs on amd64 without Python or OpenSSL, 
 
 After these fixes, all 60 Linux Python server/updater/installer compatibility tests pass, `go test ./...` and `go vet ./...` pass from the full repository mount, installer shell syntax passes, and `git diff --check` is clean.
 
+## Native macOS verification checkpoint
+
+The macOS release script now builds both the Swift status-menu wrapper and embedded Go core as universal arm64/x86_64 executables targeting macOS 13, signs the nested core and wrapper before the app, verifies the strict nested signature, checks both architecture slices, and fails on wrapper/core version drift. The native artifact is named `ClipmanServer-macOS-universal-<version>.zip`; the Swift updater prefers it and retains the combined transition ZIP as a fallback. Standalone and combined ZIPs were built, extracted, signature-checked, and their embedded core versions verified on Apple Silicon macOS.
+
+The Swift wrapper launches and routes utilities directly to the bundled Go core. Its updater now accepts the standalone native archive layout, rejects missing core/wrapper executables and symbolic links, verifies the app signature before replacement, stages on the destination volume, waits for the relaunched server's local health endpoint, and restores/relaunches the previous app if replacement, relaunch, or health verification fails. Command-line `--version` is machine-readable.
+
+The packaged core passed live macOS checks for health, authenticated conditional `PUT`, `HEAD`, `GET`, backup listing, legacy backup/restore scoped errors, inventory, guarded deletion, setup-link creation/revocation, private-CA generation and fingerprinting, direct HTTPS, and one-download CA sharing. First-run connection-file creation, setup-base-URL validation, and the legacy backup routes gained regression tests. `go test ./...`, `go vet ./...`, `go test -race ./...`, both Swift architecture type checks, shell syntax checks, and `git diff --check` pass.
+
 ## Recommended next action
 
-Continue Phase 7 by adding fixtures from additional supported historical releases and running compatibility `package` mode against an actual installed native artifact after a successful transition and after forced rollback. Add manual-recovery documentation before publishing anything. After bridge behavior is proven, proceed to Phase 8; return to native builds, platform wrappers, Linux/Docker execution, and package matrices at the end as directed.
+Continue Phase 7 by adding fixtures from additional supported historical releases and running compatibility `package` mode against an actual installed native artifact after a successful transition and after forced rollback. On macOS, run the packaged CLI corpus and installed-app update/forced-rollback flow on clean Intel and Apple Silicon machines, then complete Developer ID signing, notarization, and Gatekeeper assessment. Add manual-recovery documentation before publishing anything. No bridge or native release has been published.
 
 Before changing files, run:
 
@@ -97,6 +109,6 @@ git status --short
 git log -3 --oneline
 ```
 
-Expected starting commit after this documentation checkpoint: the commit immediately following `7d7f365`. Untracked user files must remain untouched. `.test-tmp-phase7-cache/` is a disposable Go build-cache directory from verification; its attempted cleanup was interrupted by a slow filesystem operation and it is not part of the rewrite checkpoint.
+The native macOS checkpoint commit follows `027fbef`. Untracked user files must remain untouched.
 
 The authoritative design and phase exit criteria remain in `GO_SERVER_REWRITE_PLAN.md`; this file is the concise interruption/recovery checkpoint.

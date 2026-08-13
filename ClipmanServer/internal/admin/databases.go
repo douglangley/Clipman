@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,13 @@ type DatabaseInfo struct {
 	Exists             bool   `json:"Exists"`
 }
 
+type BackupInfo struct {
+	Name          string `json:"Name"`
+	Length        int64  `json:"Length"`
+	CreatedUnixMS int64  `json:"CreatedUnixMs"`
+	Revision      string `json:"Revision"`
+}
+
 type metadata struct {
 	FirstSeenUnixMS   int64  `json:"FirstSeenUnixMs"`
 	LastSeenUnixMS    int64  `json:"LastSeenUnixMs"`
@@ -41,6 +49,37 @@ type metadata struct {
 type Manager struct {
 	Root string
 	Now  func() time.Time
+}
+
+// ListBackups preserves the legacy authenticated, cross-bucket backup listing.
+// Database IDs are deliberately not included in the response.
+func (m Manager) ListBackups() ([]BackupInfo, error) {
+	paths, err := filepath.Glob(filepath.Join(m.Root, "Databases", "*", "ServerBackups", "*.clipdb"))
+	if err != nil {
+		return nil, err
+	}
+	type item struct {
+		info BackupInfo
+		when time.Time
+	}
+	items := make([]item, 0, len(paths))
+	for _, path := range paths {
+		stat, statErr := os.Stat(path)
+		if statErr != nil {
+			return nil, statErr
+		}
+		token := fmt.Sprintf("%x-%x", stat.Size(), stat.ModTime().UnixNano())
+		items = append(items, item{info: BackupInfo{
+			Name: filepath.Base(path), Length: stat.Size(), CreatedUnixMS: stat.ModTime().UnixMilli(),
+			Revision: base64.RawURLEncoding.EncodeToString([]byte(token)),
+		}, when: stat.ModTime()})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].when.After(items[j].when) })
+	result := make([]BackupInfo, len(items))
+	for index := range items {
+		result[index] = items[index].info
+	}
+	return result, nil
 }
 
 func (m Manager) List() ([]DatabaseInfo, error) {

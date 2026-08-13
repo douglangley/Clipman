@@ -67,6 +67,17 @@ if [[ ! -d "$MAC_APP" ]]; then
   echo "Mac Clipman Server app is missing. Run ClipmanServerMac/Scripts/package-release.sh first." >&2
   exit 1
 fi
+MAC_CORE="$MAC_APP/Contents/Resources/clipman-server"
+if [[ ! -x "$MAC_CORE" ]]; then
+  echo "Mac Clipman Server app does not contain an executable Go core." >&2
+  exit 1
+fi
+MAC_WRAPPER_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$MAC_APP/Contents/Info.plist")"
+MAC_CORE_VERSION="$("$MAC_CORE" --version)"
+if [[ "$MAC_WRAPPER_VERSION" != "$VERSION" || "$MAC_CORE_VERSION" != "$VERSION" ]]; then
+  echo "Mac wrapper/core versions ($MAC_WRAPPER_VERSION/$MAC_CORE_VERSION) do not match $VERSION." >&2
+  exit 1
+fi
 COPYFILE_DISABLE=1 ditto --norsrc "$MAC_APP" "$PACKAGE_ROOT/macOS/Clipman Server.app"
 
 cat > "$PACKAGE_ROOT/manifest.json" <<JSON

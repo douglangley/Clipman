@@ -125,6 +125,42 @@ func TestHealthMethodCompatibilityBoundary(t *testing.T) {
 	}
 }
 
+func TestLegacyBackupAdministrationRoutes(t *testing.T) {
+	root := t.TempDir()
+	settings, _ := config.Defaults()
+	settings.SetString("AuthToken", "secret")
+	settings.SetString("DatabasePath", filepath.Join(root, "clipman-history.clipdb"))
+	backupDir := filepath.Join(root, "Databases", strings.Repeat("b", 43), "ServerBackups")
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backupDir, "one.clipdb"), []byte("backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, _ := blobstore.New(blobstore.Options{Root: root, MaxDatabaseBytes: 1024})
+	handler := newHandler(settings, filepath.Join(root, "settings.json"), "test", newRuntimeStats(), store)
+	request := func(method, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		return response
+	}
+	listed := request(http.MethodGet, "/api/v1/backups")
+	if listed.Code != 200 || !strings.Contains(listed.Body.String(), `"Name": "one.clipdb"`) || strings.Contains(listed.Body.String(), strings.Repeat("b", 43)) {
+		t.Fatalf("backup list status=%d body=%s", listed.Code, listed.Body.String())
+	}
+	for _, item := range []struct{ method, path, message string }{
+		{http.MethodPost, "/api/v1/backup", "Use a database-scoped backup endpoint"},
+		{http.MethodPost, "/api/v1/restore?name=one.clipdb", "Use a database-scoped restore endpoint"},
+	} {
+		response := request(item.method, item.path)
+		if response.Code != 404 || response.Body.String() != item.message {
+			t.Fatalf("%s status=%d body=%q", item.path, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestMalformedDatabaseRequestsDoNotCreateBuckets(t *testing.T) {
 	root := t.TempDir()
 	settings, _ := config.Defaults()

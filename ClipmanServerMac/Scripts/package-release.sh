@@ -16,13 +16,24 @@ if [[ ! "$VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]]; then
   exit 1
 fi
 
+case "$DIST" in
+  ""|"/"|"$HOME") echo "Refusing unsafe distribution directory: $DIST" >&2; exit 1 ;;
+esac
 rm -rf "$DIST"
 mkdir -p "$MACOS" "$RESOURCES"
 
-swiftc \
-  -o "$MACOS/Clipman Server" \
-  "$SERVER_ROOT/Sources/ClipmanServer/main.swift" \
-  -framework AppKit
+SWIFT_BUILD="$DIST/swift-build"
+mkdir -p "$SWIFT_BUILD"
+for arch in arm64 x86_64; do
+  swiftc \
+    -target "$arch-apple-macosx13.0" \
+    -module-cache-path "$SWIFT_BUILD/module-cache-$arch" \
+    -o "$SWIFT_BUILD/clipman-server-wrapper-$arch" \
+    "$SERVER_ROOT/Sources/ClipmanServer/main.swift" \
+    -framework AppKit
+done
+lipo -create "$SWIFT_BUILD/clipman-server-wrapper-arm64" "$SWIFT_BUILD/clipman-server-wrapper-x86_64" -output "$MACOS/Clipman Server"
+rm -rf "$SWIFT_BUILD"
 
 GO_BUILD="$DIST/go-build"
 mkdir -p "$GO_BUILD"
@@ -57,14 +68,32 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleVersion</key>
   <string>$BUILD_VERSION</string>
   <key>LSMinimumSystemVersion</key>
-  <string>10.13</string>
+  <string>13.0</string>
   <key>LSUIElement</key>
   <true/>
 </dict>
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$APP" >/dev/null
+SIGNING_IDENTITY="${CLIPMAN_SERVER_MAC_SIGNING_IDENTITY:--}"
+SIGNING_FLAGS=(--force --sign "$SIGNING_IDENTITY")
+if [[ "$SIGNING_IDENTITY" != "-" ]]; then
+  SIGNING_FLAGS+=(--options runtime --timestamp)
+fi
+codesign "${SIGNING_FLAGS[@]}" "$RESOURCES/clipman-server"
+codesign "${SIGNING_FLAGS[@]}" "$MACOS/Clipman Server"
+codesign "${SIGNING_FLAGS[@]}" "$APP"
+codesign --verify --deep --strict "$APP"
 
-COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$APP" "$DIST/ClipmanServerMac-$VERSION.zip"
-echo "Built $DIST/ClipmanServerMac-$VERSION.zip"
+WRAPPER_ARCHES="$(lipo -archs "$MACOS/Clipman Server")"
+CORE_ARCHES="$(lipo -archs "$RESOURCES/clipman-server")"
+for required in arm64 x86_64; do
+  [[ " $WRAPPER_ARCHES " == *" $required "* ]] || { echo "Wrapper is missing $required" >&2; exit 1; }
+  [[ " $CORE_ARCHES " == *" $required "* ]] || { echo "Core is missing $required" >&2; exit 1; }
+done
+CORE_VERSION="$("$RESOURCES/clipman-server" --version)"
+[[ "$CORE_VERSION" == "$VERSION" ]] || { echo "Core version $CORE_VERSION does not match $VERSION" >&2; exit 1; }
+
+ZIP="$DIST/ClipmanServer-macOS-universal-$VERSION.zip"
+COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent "$APP" "$ZIP"
+echo "Built $ZIP"

@@ -568,7 +568,7 @@ enum ServerUpdateService {
             return true
         }
         if args.contains("--version") {
-            showAlert(currentVersion())
+            print(currentVersion())
             return true
         }
         if args.contains("--check-updates") {
@@ -698,10 +698,23 @@ enum ServerUpdateService {
             guard let sourceApp = findMacServerApp(in: stage) else {
                 throw NSError(domain: "ClipmanServerUpdate", code: 1, userInfo: [NSLocalizedDescriptionKey: "The server update ZIP did not contain macOS/Clipman Server.app."])
             }
-            try? FileManager.default.removeItem(atPath: appPath)
-            try FileManager.default.copyItem(at: sourceApp, to: URL(fileURLWithPath: appPath))
+            try validateUpdateApp(sourceApp)
+            let installedApp = URL(fileURLWithPath: appPath)
+            let backupApp = try replaceApp(at: installedApp, with: sourceApp)
             try? FileManager.default.removeItem(at: temp)
-            NSWorkspace.shared.open(URL(fileURLWithPath: appPath))
+            guard NSWorkspace.shared.open(installedApp) else {
+                try restoreApp(at: installedApp, from: backupApp)
+                throw NSError(domain: "ClipmanServerUpdate", code: 3, userInfo: [NSLocalizedDescriptionKey: "The updated Clipman Server app could not be opened."])
+            }
+            guard waitForServerHealth() else {
+                terminateUpdatedApp()
+                try restoreApp(at: installedApp, from: backupApp)
+                _ = NSWorkspace.shared.open(installedApp)
+                throw NSError(domain: "ClipmanServerUpdate", code: 7, userInfo: [NSLocalizedDescriptionKey: "The updated Clipman Server did not become healthy, so the previous app was restored."])
+            }
+            if let backupApp {
+                try? FileManager.default.removeItem(at: backupApp)
+            }
         } catch {
             showAlert("Clipman Server update failed:\n\n\(error.localizedDescription)")
         }
@@ -714,13 +727,16 @@ enum ServerUpdateService {
             guard (row["draft"] as? Bool) != true, (row["prerelease"] as? Bool) != true else { return nil }
             let tag = ((row["tag_name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard let version = serverVersion(from: tag) else { return nil }
-            let expectedName = "ClipmanServer-\(version).zip"
             guard !version.isEmpty,
-                  let assets = row["assets"] as? [[String: Any]],
-                  let asset = assets.first(where: {
-                      let name = ($0["name"] as? String) ?? ""
-                      return name.caseInsensitiveCompare(expectedName) == .orderedSame
-                  }),
+                  let assets = row["assets"] as? [[String: Any]] else { return nil }
+            let nativeName = "ClipmanServer-macOS-universal-\(version).zip"
+            let transitionName = "ClipmanServer-\(version).zip"
+            let asset = assets.first(where: {
+                (($0["name"] as? String) ?? "").caseInsensitiveCompare(nativeName) == .orderedSame
+            }) ?? assets.first(where: {
+                (($0["name"] as? String) ?? "").caseInsensitiveCompare(transitionName) == .orderedSame
+            })
+            guard let asset,
                   let urlText = asset["browser_download_url"] as? String,
                   let url = URL(string: urlText),
                   let digest = asset["digest"] as? String,
@@ -766,11 +782,116 @@ enum ServerUpdateService {
     private static func findMacServerApp(in folder: URL) -> URL? {
         let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil)
         while let url = enumerator?.nextObject() as? URL {
-            if url.lastPathComponent == "Clipman Server.app" && url.path.contains("/macOS/") {
+            if url.lastPathComponent == "Clipman Server.app" {
                 return url
             }
         }
         return nil
+    }
+
+    private static func validateUpdateApp(_ app: URL) throws {
+        let values = try app.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw NSError(domain: "ClipmanServerUpdate", code: 4, userInfo: [NSLocalizedDescriptionKey: "The server update did not contain a regular app bundle."])
+        }
+        let wrapper = app.appendingPathComponent("Contents/MacOS/Clipman Server")
+        let core = app.appendingPathComponent("Contents/Resources/clipman-server")
+        guard FileManager.default.isExecutableFile(atPath: wrapper.path),
+              FileManager.default.isExecutableFile(atPath: core.path) else {
+            throw NSError(domain: "ClipmanServerUpdate", code: 5, userInfo: [NSLocalizedDescriptionKey: "The server update is missing its wrapper or native Go core."])
+        }
+        let enumerator = FileManager.default.enumerator(at: app, includingPropertiesForKeys: [.isSymbolicLinkKey])
+        while let item = enumerator?.nextObject() as? URL {
+            if try item.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true {
+                throw NSError(domain: "ClipmanServerUpdate", code: 6, userInfo: [NSLocalizedDescriptionKey: "The server update contains an unsupported symbolic link."])
+            }
+        }
+        try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
+    }
+
+    private static func replaceApp(at target: URL, with source: URL) throws -> URL? {
+        let manager = FileManager.default
+        let parent = target.deletingLastPathComponent()
+        let nonce = UUID().uuidString
+        let staged = parent.appendingPathComponent(".clipman-server-update-\(nonce).app")
+        let backup = parent.appendingPathComponent(".clipman-server-backup-\(nonce).app")
+        var movedOriginal = false
+        do {
+            try manager.copyItem(at: source, to: staged)
+            try validateUpdateApp(staged)
+            if manager.fileExists(atPath: target.path) {
+                try manager.moveItem(at: target, to: backup)
+                movedOriginal = true
+            }
+            try manager.moveItem(at: staged, to: target)
+            return movedOriginal ? backup : nil
+        } catch {
+            try? manager.removeItem(at: staged)
+            if movedOriginal {
+                try? manager.removeItem(at: target)
+                try? manager.moveItem(at: backup, to: target)
+            }
+            throw error
+        }
+    }
+
+    private static func restoreApp(at target: URL, from backup: URL?) throws {
+        guard let backup else { return }
+        let manager = FileManager.default
+        try? manager.removeItem(at: target)
+        try manager.moveItem(at: backup, to: target)
+    }
+
+    private static func waitForServerHealth() -> Bool {
+        let settings = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Clipman Server/clipman-server-settings.json")
+        for _ in 0..<120 {
+            if let data = try? Data(contentsOf: settings),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let port = object["Port"] as? Int,
+               port > 0 {
+                let configuredHost = (object["Host"] as? String) ?? "127.0.0.1"
+                let host: String
+                if configuredHost == "0.0.0.0" || configuredHost.isEmpty {
+                    host = "127.0.0.1"
+                } else if configuredHost == "::" || configuredHost == "[::]" {
+                    host = "[::1]"
+                } else if configuredHost.contains(":") && !configuredHost.hasPrefix("[") {
+                    host = "[\(configuredHost)]"
+                } else {
+                    host = configuredHost
+                }
+                let tls = !(((object["CertFile"] as? String) ?? "").isEmpty)
+                if healthRequestSucceeds("\(tls ? "https" : "http")://\(host):\(port)/api/v1/health") {
+                    return true
+                }
+            }
+            usleep(250_000)
+        }
+        return false
+    }
+
+    private static func healthRequestSucceeds(_ address: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        process.arguments = ["--fail", "--silent", "--show-error", "--insecure", "--max-time", "1", "--output", "/dev/null", address]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
+    private static func terminateUpdatedApp() {
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        for app in NSRunningApplication.runningApplications(withBundleIdentifier: "com.andrelouis.clipman-server") where app.processIdentifier != currentPID {
+            app.terminate()
+        }
+        usleep(500_000)
     }
 
     private static func currentVersion() -> String {

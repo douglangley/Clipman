@@ -4,9 +4,9 @@ Status: In progress on branch `go-server`
 
 Interruption/resume checkpoint: `GO_SERVER_REWRITE_STATUS.md`
 
-Revision: 2026-08-10 — CLI-driven automated compatibility testing
+Revision: 2026-08-13 — native macOS package, updater rollback, and server-contract verification
 
-Implementation checkpoint, 2026-08-11: phases 1–4 and implementation slices of phases 5–7 are committed on `go-server`. The server core, administration, onboarding, certificates, updater transaction core, native wrapper launch paths, Linux helper migration, and substantial differential/security gates are implemented. The legacy Python updater provides the two-cycle bridge into native Linux assets with same-version migration, transition-ZIP fallback, manifest-v2/digest validation, safe tar extraction, and rollback to the preserved Python launcher. Historical-layout simulations cover ordinary and externally managed installations, dummy persistent state, path quoting, successful transition, and failed-health restoration. A repeatable Windows corpus has also passed with 300 CLI-created records, two profiles synchronizing and mutating in both directions, byte-clean Unicode/CRLF/NUL data, and Go-to-Python-to-Go handoff over the same encrypted bucket. Real packaged-binary compatibility runs, broader historical-version fixtures, remaining endurance gates, manual recovery documentation, and deferred native build/package matrices remain. No bridge release has been published.
+Implementation checkpoint, 2026-08-13: phases 1–4 and implementation slices of phases 5–7 are committed on `go-server`. The server core, administration, onboarding, certificates, updater transaction core, native wrapper launch paths, Linux helper migration, and substantial differential/security gates are implemented. The legacy Python updater provides the two-cycle bridge into native Linux assets with same-version migration, transition-ZIP fallback, manifest-v2/digest validation, safe tar extraction, and rollback to the preserved Python launcher. Historical-layout simulations cover ordinary and externally managed installations, dummy persistent state, path quoting, successful transition, and failed-health restoration. A repeatable Windows corpus has passed with 300 CLI-created records and Go-to-Python-to-Go handoff. Native Linux and Docker matrices pass on amd64. On macOS, universal arm64/x86_64 wrapper and Go-core packages build and pass strict nested-signature, version, archive, HTTP, TLS, certificate-sharing, and administration checks; the updater prefers the native asset and restores the previous app after failed replacement, relaunch, or server health. Broader historical-version fixtures, remaining endurance gates, production Apple signing/notarization, clean-machine desktop UI checks, and manual recovery documentation remain. No bridge release has been published.
 
 Target: Rewrite the current Clipman Server 2.x implementation in Go without changing the client protocol, encrypted database format, settings, on-disk layout, or normal desktop user experience.
 
@@ -898,6 +898,8 @@ Longer term, a native Windows service may be added under the separate future-ser
 
 Keep the Swift/AppKit status-menu application for the first Go release.
 
+Implementation status, 2026-08-13: implemented and exercised on Apple Silicon macOS. The package builds the Swift wrapper and Go core as universal arm64/x86_64 executables, targets macOS 13, launches the core directly, routes utility actions to it, emits a machine-readable wrapper version, signs nested code inside-out, and verifies architectures and wrapper/core version agreement. The updater prefers the native macOS asset with combined-transition fallback, accepts both archive layouts, rejects missing executables and symbolic links, verifies signatures, stages replacement on the destination volume, polls the restarted local server health endpoint, and restores/relaunches the previous app on failure. Production Developer ID signing, notarization, Gatekeeper assessment, login-item/UI automation, and a clean-machine update/rollback run remain release gates.
+
 The native Go server minimum is macOS 13, matching the durable Go toolchain direction and the broader server plan. The current app advertises macOS 10.13, but a current, security-supported Go toolchain must not be replaced with an obsolete compiler to retain that target. Publish the last Python-backed app for macOS 10.13 through 12 as an explicitly time-limited legacy artifact with a documented support end date; do not imply that it receives indefinite server security updates. This working floor may be overridden before packaging begins if a supported current Go toolchain materially changes its platform policy.
 
 1. Build arm64 and amd64 Go binaries with `CGO_ENABLED=0`.
@@ -909,7 +911,7 @@ The native Go server minimum is macOS 13, matching the durable Go toolchain dire
 7. sign the nested core and then the complete app in the correct inside-out order;
 8. run Gatekeeper/notarization validation for release artifacts when signing infrastructure is available.
 
-The existing app updater continues replacing the full app bundle, which carries the new core.
+The app updater replaces the full app bundle, which carries the new core, and retains the previous bundle until the replacement server passes its local health check.
 
 ### 13.3 Linux
 
@@ -989,6 +991,8 @@ Each native package includes:
 - signature/provenance artifacts where supported.
 
 ### 14.3 Build script changes
+
+Implementation status, 2026-08-13: the macOS release script builds both wrapper and core architectures, creates universal executables, enforces macOS 13, signs inside-out, verifies nested signatures and architecture slices, checks core/package version agreement, and emits `ClipmanServer-macOS-universal-<version>.zip`. The combined transition script verifies the embedded macOS core and wrapper version before packaging. Windows release integration and remaining cross-platform release metadata remain separate gates.
 
 - Teach `Build-ServerBundle.ps1` to build the Go core before compiling the Windows wrapper.
 - Embed the Windows Go binary in the C# wrapper.
@@ -1138,6 +1142,8 @@ Run `go test -race` for two first writers, upload versus download, upload versus
 Add bounded-resource checks for 1 KiB, 1 MiB, 16 MiB, and 64 MiB blobs; slow and abandoned transfers; file-descriptor, staging-file, keyed-lock, and goroutine cleanup; header limits; decompression limits in the CLI validation path; and archive entry/expanded-size limits. The raw load driver, rather than repeated CLI process startup, measures server throughput and memory. CLI scenarios remain the semantic correctness gate at each size.
 
 ### 16.5 Platform, package, and wrapper automation
+
+macOS checkpoint, 2026-08-13: standalone native and combined transition ZIPs were built and extracted on Apple Silicon; their nested signatures, arm64/x86_64 slices, wrapper/core versions, manifests, and archive integrity passed. The packaged core passed live health, conditional upload/download, backup compatibility, setup-link, inventory/deletion, private-CA HTTPS, fingerprint, and one-download CA-sharing checks. The full Go suite, vet, race detector, both Swift architecture type checks, shell syntax, and diff checks pass. Intel execution, full packaged `clipman-cli` corpus, login-item/UI automation, production notarization/Gatekeeper, and an actual installed-app forced rollback remain outstanding.
 
 Automate packaging tests before reserving a scenario for manual execution:
 
@@ -1327,7 +1333,7 @@ Exit criteria:
 
 ### Phase 5: Platform wrappers and installers
 
-Implementation status: in progress. Native Windows/macOS launch paths and the Python/OpenSSL-free Docker runtime are implemented. The transition bundle contains multi-architecture Linux binaries and manifest v2. Linux user/system helpers now use native settings queries and the native updater, including compatible deployed flags, HTTPS discovery, zip/tar.gz validation, and offline maintenance. Exact native archive generation and the full platform package/update matrices remain.
+Implementation status: in progress. Native Windows/macOS launch paths and the Python/OpenSSL-free Docker runtime are implemented. The macOS native universal archive and combined transition archive build successfully, and the Swift updater has transactional replacement plus post-launch server-health rollback. The transition bundle contains multi-architecture Linux binaries and manifest v2. Linux user/system helpers use native settings queries and the native updater, including compatible deployed flags, HTTPS discovery, zip/tar.gz validation, and offline maintenance. Windows packaging, native Linux release-archive generation, production signing/notarization, clean-machine desktop runs, and the remaining full platform package/update matrices remain.
 
 Work:
 
@@ -1347,7 +1353,7 @@ Exit criteria:
 
 ### Phase 6: Differential, endurance, and security release gate
 
-Implementation status: in progress, with remaining native build/package matrices deferred by user direction until the end. Release gates include malformed-request/no-bucket assertions, health-method compatibility, setup `HEAD` consumption checks, exact conditional response text, full status payloads after `PUT`, runtime traffic counters, concurrent first-writer and bucket-isolation tests, canceled-upload cleanup, keyed-lock cleanup, and a streaming 64 MiB round trip. The repeatable Windows CLI corpus now passes with 300 initial records, 332 final live records after two-way mutation, duplicate modes, templates, tombstones, searches, status refreshes, and a Go-to-Python-to-Go handoff. Both clients converged on logical history SHA-256 `49bc693f12cac07ac0c977d5aaad661daba0ec3a404d5055f1c9f9f4818f10ad`.
+Implementation status: in progress. Release gates include malformed-request/no-bucket assertions, health-method compatibility, setup `HEAD` consumption checks, exact conditional response text, full status payloads after `PUT`, runtime traffic counters, concurrent first-writer and bucket-isolation tests, canceled-upload cleanup, keyed-lock cleanup, and a streaming 64 MiB round trip. The repeatable Windows CLI corpus passes with 300 initial records, 332 final live records after two-way mutation, duplicate modes, templates, tombstones, searches, status refreshes, and a Go-to-Python-to-Go handoff. Both clients converged on logical history SHA-256 `49bc693f12cac07ac0c977d5aaad661daba0ec3a404d5055f1c9f9f4818f10ad`. On macOS the packaged core and native archive pass the live protocol/administration/TLS matrix and `go test -race`; remaining macOS gates are the packaged CLI corpus on Intel and Apple Silicon, actual installed-app update/forced rollback, login-item/UI automation, and production signing/notarization.
 
 Work:
 
