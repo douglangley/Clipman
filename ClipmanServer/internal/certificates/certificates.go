@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -138,7 +140,7 @@ func normalizeNames(hosts, ips []string) ([]string, []net.IP, error) {
 			continue
 		}
 		lower := strings.ToLower(strings.TrimSuffix(clean, "."))
-		if strings.ContainsAny(lower, " /\\") || len(lower) > 253 {
+		if !validDNSName(lower) {
 			return nil, nil, fmt.Errorf("invalid certificate DNS name: %s", clean)
 		}
 		if !seen[lower] {
@@ -158,6 +160,65 @@ func normalizeNames(hosts, ips []string) ([]string, []net.IP, error) {
 		}
 	}
 	return dns, addresses, nil
+}
+
+func validDNSName(value string) bool {
+	if value == "" || len(value) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// DiscoverIPAddresses returns active non-loopback interface addresses suitable
+// for certificate IP subject alternative names.
+func DiscoverIPAddresses() ([]string, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[netip.Addr]bool{}
+	addresses := []netip.Addr{}
+	for _, networkInterface := range interfaces {
+		if networkInterface.Flags&net.FlagUp == 0 || networkInterface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		assigned, addressErr := networkInterface.Addrs()
+		if addressErr != nil {
+			continue
+		}
+		for _, value := range assigned {
+			address, parseErr := netip.ParsePrefix(value.String())
+			if parseErr != nil {
+				continue
+			}
+			ip := address.Addr().Unmap()
+			if !usableCertificateIP(ip) || seen[ip] {
+				continue
+			}
+			seen[ip] = true
+			addresses = append(addresses, ip)
+		}
+	}
+	sort.Slice(addresses, func(i, j int) bool { return addresses[i].Less(addresses[j]) })
+	result := make([]string, len(addresses))
+	for index, address := range addresses {
+		result[index] = address.String()
+	}
+	return result, nil
+}
+
+func usableCertificateIP(address netip.Addr) bool {
+	return address.IsValid() && !address.IsUnspecified() && !address.IsMulticast() && !address.IsLoopback()
 }
 func readCertificate(path string) (*x509.Certificate, []byte, error) {
 	data, err := os.ReadFile(path)

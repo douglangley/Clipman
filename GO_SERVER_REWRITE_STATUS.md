@@ -1,6 +1,6 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-14 (native per-platform release layout corrected to server-only contents)
+Last updated: 2026-08-14 (upstream server 2.6.3/2.6.4 compatibility behavior ported to the Go core)
 
 Branch: `go-server`
 
@@ -33,6 +33,8 @@ Do not discard or absorb unrelated untracked files shown by `git status`. They p
 - First-run wrapper connection-file generation and validated safe setup-base URLs.
 - Expiring and download-limited setup links, setup HTTP routes, redaction, and concurrency-safe consumption.
 - Native-Go RSA private CA and leaf generation, renewal using the existing CA, inspection, fingerprints, TLS settings updates, and temporary public-CA sharing.
+- Native interface-address discovery, strict certificate DNS-label validation, and TTY-only interactive certificate SAN selection while explicit flags and redirected executions remain non-interactive.
+- Persistent Linux user-systemd installation through lingering enablement, status reporting, and actionable administrator fallback instructions.
 - Standalone `clipman-server-updater` command.
 - Manifest v2 parsing and OS/architecture artifact selection, including same-version Python-to-Go migration selection.
 - HTTPS-only bounded downloads, SHA-256 verification, archive path/symlink/count/expanded-size defenses, staged replacement, service coordination, health checking, and rollback.
@@ -52,6 +54,7 @@ Do not discard or absorb unrelated untracked files shown by `git status`. They p
 - Historical Python compatibility suite: 57 tests passed with three platform-specific skips on Windows after updating its Docker assertion for the native entrypoint.
 - Phase 7 verification rerun: `go test ./...`, `go vet ./...`, Python bytecode compilation, and `git diff --check` passed.
 - Release-layout verification: every Go server/updater target cross-built; the Windows wrapper compiled with its embedded Go core; native Windows asset preference and combined-ZIP fallback passed; the isolated Windows installer produced byte-identical server-name aliases; the full Go server and CLI test/vet suites passed independently; and 61 Python compatibility tests passed with four platform skips on Windows.
+- Upstream 2.6.3/2.6.4 compatibility port verification on Windows: `go test ./...`, `go vet ./...`, live `--list-certificate-ips`, Linux installer shell syntax, and `git diff --check` pass. The POSIX-only user-systemd installer tests are implemented and await their Linux run.
 
 ## Important remaining work
 
@@ -60,6 +63,8 @@ Phase 2 is not fully release-gated. Complete runtime counters and health parity,
 Phase 3 server-core behavior is implemented. Live macOS certificate sharing now passes; still expand raw differential coverage, RSA legacy-fixture verification, setup-link expiry/HEAD cases, and exact stable-output comparisons with Python.
 
 Phase 4 updater security and transaction core is implemented. Compatibility `package` mode now drives an already-running isolated package through the real CLI and checks executable/core version agreement. A Windows package sandbox passes after native archive installation and after forced health rollback; it proves the installed program bytes are restored and every persistent server-state byte remains unchanged. The macOS wrapper performs staged app replacement, nested-code validation, local health checking, and rollback. Clean Windows wrapper/service coverage and remaining systemd/runit/external installed-package paths stay coupled to Phase 5.
+
+The upstream server 2.6.3 and 2.6.4 changes were reviewed after synchronizing the fork's `main`. The Go branch now carries the relevant Linux user-systemd lingering behavior and native certificate-address discovery, interactive terminal selection, automation-safe explicit SAN flags, cancellation-before-mutation, and stricter hostname validation. Native Windows/macOS address-selection presentation remains Phase 5 work.
 
 ## Phase 7 bridge checkpoint
 

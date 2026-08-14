@@ -2,11 +2,66 @@ package app
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestCertificatePromptIncludesDetectedAddressesAndHosts(t *testing.T) {
+	var output bytes.Buffer
+	hosts, addresses, err := promptCertificateNames(
+		strings.NewReader("yes\nserver.example, pi.local\n"),
+		&output,
+		[]string{"192.0.2.8", "2001:db8::8"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(hosts, ",") != "server.example,pi.local" {
+		t.Fatalf("hosts=%v", hosts)
+	}
+	if strings.Join(addresses, ",") != "192.0.2.8,2001:db8::8" {
+		t.Fatalf("addresses=%v", addresses)
+	}
+	if !strings.Contains(output.String(), "Detected non-loopback IP addresses:") {
+		t.Fatalf("output=%q", output.String())
+	}
+}
+
+func TestCertificatePromptCanSkipAddressesAndRetriesAnswer(t *testing.T) {
+	var output bytes.Buffer
+	hosts, addresses, err := promptCertificateNames(strings.NewReader("perhaps\nno\n\n"), &output, []string{"192.0.2.8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 0 || len(addresses) != 0 {
+		t.Fatalf("hosts=%v addresses=%v", hosts, addresses)
+	}
+	if !strings.Contains(output.String(), "Please answer yes or no.") {
+		t.Fatalf("output=%q", output.String())
+	}
+}
+
+func TestCertificatePromptWithoutDetectedAddressesStillAsksForHosts(t *testing.T) {
+	var output bytes.Buffer
+	hosts, addresses, err := promptCertificateNames(strings.NewReader("server.example\n"), &output, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(hosts, ",") != "server.example" || len(addresses) != 0 {
+		t.Fatalf("hosts=%v addresses=%v", hosts, addresses)
+	}
+}
+
+func TestCertificatePromptEOFIsCancellation(t *testing.T) {
+	_, _, err := promptCertificateNames(strings.NewReader(""), io.Discard, []string{"192.0.2.8"})
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("err=%v", err)
+	}
+}
 
 func TestVersionOutputIsBare(t *testing.T) {
 	var stdout, stderr bytes.Buffer

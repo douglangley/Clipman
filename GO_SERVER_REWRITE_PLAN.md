@@ -1331,7 +1331,7 @@ Exit criteria:
 
 ### Phase 3: Administration, onboarding, and certificates
 
-Implementation status: core work and automated acceptance paths implemented on `go-server`; platform wrapper presentation remains part of Phase 5.
+Implementation status: core work and automated acceptance paths implemented on `go-server`; native interface-address discovery, `--list-certificate-ips`, strict DNS-label validation, and TTY-gated interactive SAN selection are implemented. Explicit SAN flags and redirected executions remain non-interactive. Platform wrapper presentation remains part of Phase 5.
 
 Work:
 
@@ -1367,7 +1367,7 @@ Exit criteria:
 
 ### Phase 5: Platform wrappers and installers
 
-Implementation status: in progress. Native Windows/macOS launch paths and the Python/OpenSSL-free Docker runtime are implemented. The macOS native universal archive and combined transition archive build successfully, and the Swift updater has transactional replacement plus post-launch server-health rollback. The transition bundle contains multi-architecture Linux binaries and manifest v2. Linux user/system helpers use native settings queries and the native updater, including compatible deployed flags, HTTPS discovery, zip/tar.gz validation, and offline maintenance. Windows packaging, native Linux release-archive generation, production signing/notarization, clean-machine desktop runs, and the remaining full platform package/update matrices remain.
+Implementation status: in progress. Native Windows/macOS launch paths and the Python/OpenSSL-free Docker runtime are implemented. The macOS native universal archive and combined transition archive build successfully, and the Swift updater has transactional replacement plus post-launch server-health rollback. The transition bundle contains multi-architecture Linux binaries and manifest v2. Linux user/system helpers use native settings queries and the native updater, including compatible deployed flags, HTTPS discovery, zip/tar.gz validation, offline maintenance, and persistent user-systemd startup through lingering enablement and status reporting. Windows packaging, native Linux release-archive generation, production signing/notarization, clean-machine desktop runs, native Windows/macOS certificate-address selection, and the remaining full platform package/update matrices remain.
 
 Work:
 

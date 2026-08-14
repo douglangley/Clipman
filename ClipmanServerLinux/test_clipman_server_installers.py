@@ -102,6 +102,23 @@ class LinuxInstallerTests(unittest.TestCase):
             exit 0
             """,
         )
+        self._write_executable(
+            self.fake_bin / "loginctl",
+            """
+            #!/usr/bin/env sh
+            printf 'loginctl %s\n' "$*" >> "$COMMAND_LOG"
+            case "$1" in
+              show-user)
+                if [ -f "$LINGER_MARKER" ]; then printf 'yes\n'; else printf 'no\n'; fi
+                ;;
+              --no-ask-password)
+                [ "${LINGER_ENABLE_FAIL:-0}" = "1" ] && exit 1
+                [ "$2" = "enable-linger" ] && : > "$LINGER_MARKER"
+                ;;
+            esac
+            exit 0
+            """,
+        )
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -118,6 +135,7 @@ class LinuxInstallerTests(unittest.TestCase):
                 "PATH": str(self.fake_bin) + os.pathsep + environment.get("PATH", ""),
                 "COMMAND_LOG": str(self.command_log),
                 "SERVER_COMMAND_LOG": str(self.command_log),
+                "LINGER_MARKER": str(self.root / "linger-enabled"),
                 "CLIPMAN_SERVER_APP_DIR": str(self.root / "installed" / "app"),
                 "CLIPMAN_SERVER_BIN_DIR": str(self.root / "installed" / "bin"),
                 "CLIPMAN_SERVER_CONFIG_DIR": str(self.root / "installed" / "config"),
@@ -219,12 +237,35 @@ class LinuxInstallerTests(unittest.TestCase):
         self.assertTrue(service.is_file())
         self.assertTrue(timer.is_file())
         self.assertIn('ExecStart="' + environment["CLIPMAN_SERVER_BIN_DIR"], service.read_text(encoding="utf-8"))
+        self.assertTrue(Path(environment["LINGER_MARKER"]).is_file())
         self._run([str(helper), "start"], environment)
+        status = self._run([str(helper), "status"], environment)
+        self.assertIn("Start at boot without login: enabled", status.stdout)
         updater_log = self.root / "systemd-updater-init.txt"
         update_environment = environment.copy()
         update_environment["UPDATER_ENV_LOG"] = str(updater_log)
         self._run([str(helper), "update", "--yes"], update_environment)
         self.assertEqual("systemd", updater_log.read_text(encoding="utf-8"))
+        commands = self.command_log.read_text(encoding="utf-8")
+        self.assertEqual(1, commands.count("loginctl --no-ask-password enable-linger"))
+
+    def test_user_systemd_install_warns_when_linger_requires_administrator(self) -> None:
+        environment = self._base_environment()
+        environment.update(
+            {
+                "CLIPMAN_SERVER_INIT_SYSTEM": "systemd",
+                "CLIPMAN_SERVER_SERVICE_DIR": str(self.root / "home" / ".config" / "systemd" / "user"),
+                "LINGER_ENABLE_FAIL": "1",
+            }
+        )
+        installed = self._run(["sh", str(self.linux / "install-clipman-server.sh")], environment)
+        self.assertIn("systemd user lingering is not enabled", installed.stdout)
+        self.assertIn("sudo loginctl enable-linger", installed.stdout)
+        self.assertFalse(Path(environment["LINGER_MARKER"]).exists())
+
+        helper = Path(environment["CLIPMAN_SERVER_BIN_DIR"]) / "clipmanserver"
+        status = self._run([str(helper), "status"], environment)
+        self.assertIn("Start at boot without login: disabled", status.stdout)
 
     def test_native_release_layout_installs_only_server_names(self) -> None:
         target = self.root / "native-release" / "linux-amd64"

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"context"
 	"crypto/subtle"
 	"errors"
@@ -47,16 +48,16 @@ func (s *stringList) Set(value string) error {
 }
 
 type options struct {
-	showVersion, suggestPort, allowInsecureRemote, createTLSCertificate bool
-	showHost, showDatabasePruneDays                                     bool
-	newCA, showCAFingerprint, shareCA, showToken                        bool
-	writeConnectionInfo, createSetupLink, revokeSetupLink               bool
-	listDatabases, listDatabasesJSON, confirm, forceRecent              bool
-	configPath, host, advertiseHost, databasePath, logPath              string
-	certFile, keyFile, shareHost, setupBaseURL, deleteDatabase          string
-	port, shareMinutes, setupMinutes, setupDownloads, pruneDays         int
-	portSet, pruneDaysSet                                               bool
-	certHosts, certIPs                                                  stringList
+	showVersion, suggestPort, listCertificateIPs, allowInsecureRemote, createTLSCertificate bool
+	showHost, showDatabasePruneDays                                                         bool
+	newCA, showCAFingerprint, shareCA, showToken                                            bool
+	writeConnectionInfo, createSetupLink, revokeSetupLink                                   bool
+	listDatabases, listDatabasesJSON, confirm, forceRecent                                  bool
+	configPath, host, advertiseHost, databasePath, logPath                                  string
+	certFile, keyFile, shareHost, setupBaseURL, deleteDatabase                              string
+	port, shareMinutes, setupMinutes, setupDownloads, pruneDays                             int
+	portSet, pruneDaysSet                                                                   bool
+	certHosts, certIPs                                                                      stringList
 }
 
 func Run(args []string, version string, stdout, stderr io.Writer) int {
@@ -90,6 +91,17 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintln(stdout, port)
+		return 0
+	}
+	if opts.listCertificateIPs {
+		addresses, discoverErr := certificates.DiscoverIPAddresses()
+		if discoverErr != nil {
+			fmt.Fprintf(stderr, "Could not discover certificate IP addresses: %v\n", discoverErr)
+			return 1
+		}
+		for _, address := range addresses {
+			fmt.Fprintln(stdout, address)
+		}
 		return 0
 	}
 	if opts.portSet && (opts.port < 1 || opts.port > 65535) {
@@ -138,8 +150,23 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if opts.createTLSCertificate {
-		hosts := append([]string{settings.String("Host"), settings.String("AdvertiseHost")}, opts.certHosts...)
-		result, certErr := certificates.Generate(configPath, hosts, opts.certIPs, opts.newCA)
+		certificateHosts := append([]string(nil), opts.certHosts...)
+		certificateIPs := append([]string(nil), opts.certIPs...)
+		if len(certificateHosts) == 0 && len(certificateIPs) == 0 && stdinIsTerminal() {
+			detected, discoverErr := certificates.DiscoverIPAddresses()
+			if discoverErr != nil {
+				fmt.Fprintf(stderr, "Could not discover certificate IP addresses: %v\n", discoverErr)
+			}
+			promptedHosts, promptedIPs, promptErr := promptCertificateNames(os.Stdin, stdout, detected)
+			if promptErr != nil {
+				fmt.Fprintln(stderr, "Certificate creation cancelled.")
+				return 130
+			}
+			certificateHosts = promptedHosts
+			certificateIPs = promptedIPs
+		}
+		hosts := append([]string{settings.String("Host"), settings.String("AdvertiseHost")}, certificateHosts...)
+		result, certErr := certificates.Generate(configPath, hosts, certificateIPs, opts.newCA)
 		if certErr != nil {
 			fmt.Fprintf(stderr, "Could not create the HTTPS certificate: %v\n", certErr)
 			return 1
@@ -241,6 +268,61 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 	return runHTTP(settings, configPath, version, stdout, stderr)
 }
 
+func stdinIsTerminal() bool {
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func promptCertificateNames(input io.Reader, output io.Writer, detectedIPs []string) ([]string, []string, error) {
+	reader := bufio.NewReader(input)
+	selectedIPs := []string{}
+	if len(detectedIPs) == 0 {
+		fmt.Fprintln(output, "No non-loopback IP addresses were detected. Localhost remains included automatically.")
+	} else {
+		fmt.Fprintln(output, "Detected non-loopback IP addresses:")
+		for _, address := range detectedIPs {
+			fmt.Fprintf(output, "  %s\n", address)
+		}
+		for {
+			answer, err := readPromptLine(reader, output, "Include all detected addresses in the certificate? [Y/n] ")
+			if err != nil {
+				return nil, nil, err
+			}
+			switch strings.ToLower(answer) {
+			case "", "y", "yes":
+				selectedIPs = append(selectedIPs, detectedIPs...)
+				goto addressesChosen
+			case "n", "no":
+				goto addressesChosen
+			default:
+				fmt.Fprintln(output, "Please answer yes or no.")
+			}
+		}
+	}
+
+addressesChosen:
+	rawHosts, err := readPromptLine(reader, output, "Additional hostnames, comma-separated (blank for none): ")
+	if err != nil {
+		return nil, nil, err
+	}
+	hosts := []string{}
+	for _, value := range strings.Split(rawHosts, ",") {
+		if clean := strings.TrimSpace(value); clean != "" {
+			hosts = append(hosts, clean)
+		}
+	}
+	return hosts, selectedIPs, nil
+}
+
+func readPromptLine(reader *bufio.Reader, output io.Writer, prompt string) (string, error) {
+	fmt.Fprint(output, prompt)
+	value, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(value), nil
+}
+
 func refreshConnectionFiles(configPath string, settings config.Settings, created, forced bool, stderr io.Writer) {
 	directory := filepath.Dir(configPath)
 	textPath := filepath.Join(directory, "clipman-server-connection.txt")
@@ -312,6 +394,7 @@ func parseOptions(args []string, defaultConfig string) (options, error) {
 	set.StringVar(&result.certFile, "cert-file", "", "TLS certificate")
 	set.StringVar(&result.keyFile, "key-file", "", "TLS key")
 	set.BoolVar(&result.createTLSCertificate, "create-tls-certificate", false, "create TLS certificate")
+	set.BoolVar(&result.listCertificateIPs, "list-certificate-ips", false, "list certificate IP addresses")
 	set.Var(&result.certHosts, "cert-host", "certificate DNS name")
 	set.Var(&result.certIPs, "cert-ip", "certificate IP")
 	set.BoolVar(&result.newCA, "new-ca", false, "replace private CA")
