@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VERSION="$(tr -d '[:space:]' < "$ROOT/ClipmanServer/version.txt")"
-CLI_VERSION="$(tr -d '[:space:]' < "$ROOT/ClipmanCli/VERSION")"
 TEMP_ROOT="${CLIPMAN_TEMP_ROOT:-$HOME/Projects/Codex/Temp/clipman}"
 DIST="${CLIPMAN_SERVER_RELEASE_OUTPUT_DIR:-$TEMP_ROOT/server-release-dist}"
 WINDOWS_WRAPPER="${CLIPMAN_SERVER_WINDOWS_EXE:-$ROOT/ClipmanServerWindows/dist/Clipman Server.exe}"
@@ -11,10 +10,6 @@ MAC_APP="${CLIPMAN_SERVER_MAC_APP:-$ROOT/ClipmanServerMac/dist/Clipman Server.ap
 
 [[ "$VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || {
   echo "Invalid Clipman Server version: $VERSION" >&2
-  exit 1
-}
-[[ "$CLI_VERSION" =~ '^[0-9A-Za-z][0-9A-Za-z.+-]*$' ]] || {
-  echo "Invalid Clipman CLI version: $CLI_VERSION" >&2
   exit 1
 }
 case "$DIST" in
@@ -38,8 +33,6 @@ for required in \
   "$ROOT/ClipmanServerDocker/docker-entrypoint.sh" \
   "$ROOT/ClipmanServer/Manual.html" \
   "$ROOT/ClipmanServer/clipman-server-settings.example.jsonc" \
-  "$ROOT/ClipmanCli/Manual.html" \
-  "$ROOT/ClipmanCli/clipman-cli.1" \
   "$ROOT/LICENSE.txt"; do
   [[ -e "$required" ]] || { echo "Required release input is missing: $required" >&2; exit 1; }
 done
@@ -56,20 +49,7 @@ trap cleanup EXIT
 
 if [[ "${CLIPMAN_SERVER_RELEASE_SKIP_TESTS:-}" != "1" ]]; then
   (cd "$ROOT/ClipmanServer" && go test ./... && go vet ./...)
-  (cd "$ROOT/ClipmanCli" && go test ./... && go vet ./...)
 fi
-
-build_cli() {
-  local goos="$1" goarch="$2" goarm="$3" output="$4"
-  mkdir -p "$(dirname "$output")"
-  if [[ -n "$goarm" ]]; then
-    (cd "$ROOT/ClipmanCli" && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="$goarm" \
-      go build -trimpath -ldflags="-s -w -X main.version=$CLI_VERSION" -o "$output" ./cmd/clipman-cli)
-  else
-    (cd "$ROOT/ClipmanCli" && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-      go build -trimpath -ldflags="-s -w -X main.version=$CLI_VERSION" -o "$output" ./cmd/clipman-cli)
-  fi
-}
 
 build_server() {
   local goos="$1" goarch="$2" goarm="$3" output="$4"
@@ -102,15 +82,10 @@ copy_support() {
   mkdir -p "$target/support"
   cp "$ROOT/ClipmanServer/Manual.html" "$target/support/Manual.html"
   cp "$ROOT/ClipmanServer/clipman-server-settings.example.jsonc" "$target/support/clipman-server-settings.example.jsonc"
-  cp "$ROOT/ClipmanCli/Manual.html" "$target/support/ClipmanCli-Manual.html"
-  cp "$ROOT/ClipmanCli/clipman-cli.1" "$target/support/clipman-cli.1"
   cp "$ROOT/LICENSE.txt" "$target/support/LICENSE.txt"
   {
     echo "Clipman Server Go modules"
     (cd "$ROOT/ClipmanServer" && go list -m all)
-    echo
-    echo "Clipman CLI Go modules"
-    (cd "$ROOT/ClipmanCli" && go list -m all)
   } > "$target/support/DEPENDENCIES.txt"
 }
 
@@ -135,41 +110,20 @@ mkdir -p "$WINDOWS" "$MACOS"
 copy_support "$WINDOWS"
 copy_support "$MACOS"
 
-build_cli windows amd64 "" "$WINDOWS/clipman.exe"
-cp "$WINDOWS/clipman.exe" "$WINDOWS/clipman-cli.exe"
 cp "$WINDOWS_WRAPPER" "$WINDOWS/clipmanserver.exe"
 cp "$WINDOWS_WRAPPER" "$WINDOWS/Clipman Server.exe"
 cp "$ROOT/ClipmanServerWindows/Install-ClipmanServer.ps1" "$WINDOWS/install.ps1"
 
-MAC_BUILD="$STAGING/mac-cli"
-mkdir -p "$MAC_BUILD"
-build_cli darwin amd64 "" "$MAC_BUILD/clipman-amd64"
-build_cli darwin arm64 "" "$MAC_BUILD/clipman-arm64"
-lipo -create "$MAC_BUILD/clipman-amd64" "$MAC_BUILD/clipman-arm64" -output "$MACOS/clipman"
-chmod 755 "$MACOS/clipman"
 COPYFILE_DISABLE=1 ditto --norsrc "$MAC_APP" "$MACOS/Clipman Server.app"
 cp "$ROOT/ClipmanServerMac/Scripts/clipmanserver" "$MACOS/clipmanserver"
 cp "$ROOT/ClipmanServerMac/Scripts/install.sh" "$MACOS/install.sh"
-chmod 755 "$MACOS/clipman" "$MACOS/clipmanserver" "$MACOS/install.sh"
-
-SIGNING_IDENTITY="${CLIPMAN_SERVER_MAC_SIGNING_IDENTITY:--}"
-SIGNING_FLAGS=(--force --sign "$SIGNING_IDENTITY")
-if [[ "$SIGNING_IDENTITY" != "-" ]]; then
-  SIGNING_FLAGS+=(--options runtime --timestamp)
-fi
-codesign "${SIGNING_FLAGS[@]}" "$MACOS/clipman"
-codesign --verify --strict "$MACOS/clipman"
-cp "$MACOS/clipman" "$MACOS/clipman-cli"
-chmod 755 "$MACOS/clipman-cli"
-codesign --verify --strict "$MACOS/clipman-cli"
+chmod 755 "$MACOS/clipmanserver" "$MACOS/install.sh"
 
 build_linux_target() {
   local directory="$1" goarch="$2" goarm="$3"
   local target="$PACKAGE_ROOT/$directory"
   mkdir -p "$target/support"
   copy_support "$target"
-  build_cli linux "$goarch" "$goarm" "$target/clipman"
-  cp "$target/clipman" "$target/clipman-cli"
   build_server linux "$goarch" "$goarm" "$target/support/clipman-server"
   build_updater linux "$goarch" "$goarm" "$target/support/clipman-server-updater"
   cp "$ROOT/ClipmanServerLinux/clipmanserver" "$target/clipmanserver"
@@ -185,8 +139,6 @@ exec "$SCRIPT_DIR/support/clipman-server" \
 SH
   cp "$target/clipman-server" "$target/run-clipman-server.sh"
   chmod 755 \
-    "$target/clipman" \
-    "$target/clipman-cli" \
     "$target/clipmanserver" \
     "$target/clipman-server" \
     "$target/run-clipman-server.sh" \
@@ -275,7 +227,6 @@ cat > "$PACKAGE_ROOT/release-manifest.json" <<JSON
   "format_version": 1,
   "name": "Clipman Server",
   "server_version": "$VERSION",
-  "clipman_cli_version": "$CLI_VERSION",
   "commit": "$COMMIT",
   "directories": [
     "windows-amd64",
@@ -285,12 +236,9 @@ cat > "$PACKAGE_ROOT/release-manifest.json" <<JSON
     "linux-armv7"
   ],
   "primary_commands": {
-    "clipman": "Clipman command-line client",
     "clipmanserver": "platform Clipman Server management entrypoint"
   },
   "compatibility_names": [
-    "clipman-cli",
-    "clipman-cli.exe",
     "clipman-server",
     "run-clipman-server.sh",
     "install-clipman-server.sh",
@@ -307,23 +255,11 @@ for directory in windows-amd64 macos-universal linux-amd64 linux-arm64 linux-arm
 done
 write_sums "$PACKAGE_ROOT"
 
-cmp -s "$WINDOWS/clipman.exe" "$WINDOWS/clipman-cli.exe" || {
-  echo "Windows clipman compatibility alias differs from the primary binary." >&2
-  exit 1
-}
 cmp -s "$WINDOWS/clipmanserver.exe" "$WINDOWS/Clipman Server.exe" || {
   echo "Windows Clipman Server compatibility alias differs from clipmanserver.exe." >&2
   exit 1
 }
-cmp -s "$MACOS/clipman" "$MACOS/clipman-cli" || {
-  echo "macOS clipman compatibility alias differs from the primary binary." >&2
-  exit 1
-}
 for directory in linux-amd64 linux-arm64 linux-armv7; do
-  cmp -s "$PACKAGE_ROOT/$directory/clipman" "$PACKAGE_ROOT/$directory/clipman-cli" || {
-    echo "$directory clipman compatibility alias differs from the primary binary." >&2
-    exit 1
-  }
   cmp -s "$PACKAGE_ROOT/$directory/clipman-server" "$PACKAGE_ROOT/$directory/run-clipman-server.sh" || {
     echo "$directory legacy server launcher differs from clipman-server." >&2
     exit 1
@@ -333,18 +269,6 @@ for directory in linux-amd64 linux-arm64 linux-armv7; do
     exit 1
   }
 done
-
-CLI_ARCHES="$(lipo -archs "$MACOS/clipman")"
-for required in arm64 x86_64; do
-  [[ " $CLI_ARCHES " == *" $required "* ]] || {
-    echo "The macOS clipman command is missing $required." >&2
-    exit 1
-  }
-done
-[[ "$("$MACOS/clipman" --version)" == *"$CLI_VERSION"* ]] || {
-  echo "The packaged macOS clipman version does not match $CLI_VERSION." >&2
-  exit 1
-}
 [[ "$("$MACOS/Clipman Server.app/Contents/Resources/clipman-server" --version)" == "$VERSION" ]] || {
   echo "The packaged macOS server core version does not match $VERSION." >&2
   exit 1

@@ -15,18 +15,20 @@ linux-arm64/
 linux-armv7/
 ```
 
-Every platform directory provides `clipman` (the command-line client) and
-`clipmanserver` (the platform server-management entrypoint), plus its installer,
-manifest, checksums, documentation, and platform support files. Windows uses
-the `.exe` suffix. macOS retains `Clipman Server.app`; the command-line
-`clipmanserver` launcher opens the app or invokes its bundled Go core. Linux
-keeps the native daemon and updater under `support/`.
+Every platform directory provides `clipmanserver` (the platform server-management
+entrypoint), plus its installer, manifest, checksums, documentation, and platform
+support files. Windows uses the `.exe` suffix. macOS retains
+`Clipman Server.app`; the command-line `clipmanserver` launcher opens the app or
+invokes its bundled Go core. Linux keeps the native daemon and updater under
+`support/`.
+
+The Clipman command-line client is intentionally absent. `ClipmanCli/Build.ps1`
+and `ClipmanCli/build.sh` remain the only release builders for `clipman-cli`.
 
 ## Compatibility names
 
 The new layout does not invalidate Python-era installations or instructions:
 
-- `clipman-cli` remains a byte-identical alias for `clipman`;
 - `clipman-server` remains the Linux daemon launcher;
 - `clipmanserver` remains the Linux service-management helper;
 - `run-clipman-server.sh` remains a byte-identical Linux launcher alias;

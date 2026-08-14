@@ -8,7 +8,7 @@ Revision: 2026-08-13 — native package-mode and historical bridge fixture verif
 
 Implementation checkpoint, 2026-08-13: phases 1–4 and implementation slices of phases 5–7 are committed on `go-server`. The server core, administration, onboarding, certificates, updater transaction core, native wrapper launch paths, Linux helper migration, and substantial differential/security gates are implemented. The legacy Python updater provides the two-cycle bridge into native Linux assets with same-version migration, transition-ZIP fallback, manifest-v2/digest validation, safe tar extraction, and rollback to the preserved Python launcher. Historical-layout simulations cover ordinary and externally managed installations, dummy persistent state, path quoting, successful transition, and failed-health restoration. Published Python package generations 2.1.1, 2.4.3, and 2.6.3 are pinned by release and critical-file digests. Compatibility `package` mode now drives a real CLI corpus against an explicitly marked isolated installed endpoint. A Windows native archive install and forced unhealthy replacement passed package mode before and after byte-exact program rollback while persistent server state remained byte-identical. The larger Windows corpus has passed with 300 CLI-created records and Go-to-Python-to-Go handoff. Native Linux and Docker matrices pass on amd64. On macOS, universal arm64/x86_64 wrapper and Go-core packages build and pass strict nested-signature, version, archive, HTTP, TLS, certificate-sharing, and administration checks; the updater prefers the native asset and restores the previous app after failed replacement, relaunch, or server health. Remaining endurance gates, production Apple signing/notarization, clean-machine desktop UI checks, and platform update matrices remain. No bridge release has been published.
 
-Release-layout checkpoint, 2026-08-13: the release builder now stages one `ClipmanServer-<version>` directory with self-contained `windows-amd64`, `macos-universal`, `linux-amd64`, `linux-arm64`, and `linux-armv7` directories. Each exposes `clipman` and `clipmanserver`, includes its installer, manifest, checksums, documentation, and support files, and is the source for the existing platform-native update archive names. Compatibility aliases retain `clipman-cli`, `clipman-server`, `Clipman Server.exe`, and `Clipman Server.app`; installed settings/service/data paths are unchanged. The combined `ClipmanServer-<version>.zip` remains separately generated with its historical Python layout until the bridge window closes.
+Release-layout checkpoint, 2026-08-14: the release builder now stages one server-only `ClipmanServer-<version>` directory with self-contained `windows-amd64`, `macos-universal`, `linux-amd64`, `linux-arm64`, and `linux-armv7` directories. Each exposes `clipmanserver`, includes its installer, manifest, checksums, documentation, and server support files, and is the source for the existing platform-native update archive names. The separate Clipman CLI build remains solely responsible for client binaries and documentation. Server compatibility aliases retain `clipman-server`, `Clipman Server.exe`, and `Clipman Server.app`; installed settings/service/data paths are unchanged. The combined `ClipmanServer-<version>.zip` remains separately generated with its historical Python layout until the bridge window closes.
 
 Target: Rewrite the current Clipman Server 2.x implementation in Go without changing the client protocol, encrypted database format, settings, on-disk layout, or normal desktop user experience.
 
@@ -982,18 +982,16 @@ ClipmanServer-Linux-armv7-<version>.tar.gz
 
 Keep `ClipmanServer-<version>.zip` as a transition asset while old updaters require it. Do not permanently put every architecture into one archive; that would forfeit much of the distribution benefit.
 
-The release build also leaves an inspectable CLI-style directory before archive publication:
+The release build also leaves an inspectable per-platform directory before archive publication, following the Clipman CLI build's directory organization without including the CLI itself:
 
 ```text
 ClipmanServer-<version>/
   windows-amd64/
-    clipman.exe
     clipmanserver.exe
     Clipman Server.exe
     install.ps1
     support/
   macos-universal/
-    clipman
     clipmanserver
     Clipman Server.app/
     install.sh
@@ -1001,7 +999,6 @@ ClipmanServer-<version>/
   linux-amd64/
   linux-arm64/
   linux-armv7/
-    clipman
     clipmanserver
     clipman-server
     run-clipman-server.sh
@@ -1015,7 +1012,7 @@ ClipmanServer-<version>/
   SHA256SUMS
 ```
 
-`clipman` is the primary CLI command and `clipmanserver` is the platform management entrypoint. `clipman-cli`, `clipman-server`, `Clipman Server.exe`, and `Clipman Server.app` remain compatibility names. Platform archives are derived from the matching directory; the combined Python transition ZIP remains a separate build output rather than being confused with the native layout.
+`clipmanserver` is the platform server-management entrypoint. `clipman-server`, `Clipman Server.exe`, and `Clipman Server.app` remain server compatibility names. No `clipman` or `clipman-cli` binary is included; those remain products of the separate Clipman CLI build. Platform archives are derived from the matching directory; the combined Python transition ZIP remains a separate build output rather than being confused with the native layout.
 
 Each native package includes:
 

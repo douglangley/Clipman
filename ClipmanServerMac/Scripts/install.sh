@@ -7,7 +7,7 @@ BIN_DIR="${CLIPMAN_BIN_DIR:-$HOME/.local/bin}"
 SOURCE_APP="$SCRIPT_DIR/Clipman Server.app"
 TARGET_APP="$APPLICATIONS_DIR/Clipman Server.app"
 
-for required in "$SCRIPT_DIR/clipman" "$SCRIPT_DIR/clipmanserver" "$SOURCE_APP/Contents/MacOS/Clipman Server" "$SOURCE_APP/Contents/Resources/clipman-server"; do
+for required in "$SCRIPT_DIR/clipmanserver" "$SOURCE_APP/Contents/MacOS/Clipman Server" "$SOURCE_APP/Contents/Resources/clipman-server"; do
   [ -e "$required" ] || { echo "Required release file is missing: $required" >&2; exit 1; }
 done
 
@@ -50,10 +50,6 @@ if ! mv "$stage" "$TARGET_APP"; then
 fi
 rm -rf "$backup"
 
-cp "$SCRIPT_DIR/clipman" "$BIN_DIR/clipman"
-cp "$SCRIPT_DIR/clipman" "$BIN_DIR/clipman-cli"
-chmod 755 "$BIN_DIR/clipman" "$BIN_DIR/clipman-cli"
-
 cat > "$BIN_DIR/clipmanserver" <<EOF
 #!/usr/bin/env sh
 set -eu
@@ -64,4 +60,4 @@ EOF
 chmod 755 "$BIN_DIR/clipmanserver"
 
 echo "Installed Clipman Server.app in $APPLICATIONS_DIR"
-echo "Installed clipman, clipman-cli, and clipmanserver in $BIN_DIR"
+echo "Installed clipmanserver in $BIN_DIR"

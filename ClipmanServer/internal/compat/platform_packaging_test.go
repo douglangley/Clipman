@@ -40,7 +40,7 @@ func TestNormalDesktopAndContainerLaunchPathsUseNativeCore(t *testing.T) {
 	}
 }
 
-func TestReleaseLayoutKeepsNativeAndPythonEraNames(t *testing.T) {
+func TestReleaseLayoutIsServerOnlyAndKeepsPythonEraServerNames(t *testing.T) {
 	repository := filepath.Clean(filepath.Join("..", "..", ".."))
 	cases := []struct {
 		path      string
@@ -51,21 +51,21 @@ func TestReleaseLayoutKeepsNativeAndPythonEraNames(t *testing.T) {
 			"ClipmanServerMac/Scripts/package-release-layout.sh",
 			[]string{
 				"windows-amd64", "macos-universal", "linux-amd64", "linux-arm64", "linux-armv7",
-				"/clipman.exe", "/clipmanserver.exe", "/clipman", "/clipmanserver",
-				"Clipman Server.exe", "Clipman Server.app", "clipman-cli",
+				"/clipmanserver.exe", "/clipmanserver",
+				"Clipman Server.exe", "Clipman Server.app",
 				"run-clipman-server.sh", "install-clipman-server.sh",
 				"ClipmanServer-Windows-x64-", "ClipmanServer-macOS-universal-", "ClipmanServer-Linux-amd64-",
 			},
-			[]string{"clipman_server.py", "python3", "openssl"},
+			[]string{"clipman_server.py", "python3", "openssl", "ClipmanCli", "clipman-cli", "build_cli", "CLI_VERSION", "clipman.exe"},
 		},
 		{
 			"ClipmanServerLinux/install-clipman-server.sh",
 			[]string{
 				"support/clipman-server", "support/clipman-server-updater",
 				"clipman-server-$NATIVE_ARCH", "clipman-server-updater-$NATIVE_ARCH",
-				`$BIN_DIR/clipman`, `$BIN_DIR/clipman-cli`, `$BIN_DIR/clipman-server`, `$BIN_DIR/clipmanserver`,
+				`$BIN_DIR/clipman-server`, `$BIN_DIR/clipmanserver`,
 			},
-			nil,
+			[]string{"CLI_SOURCE", `$BIN_DIR/clipman-cli`},
 		},
 		{
 			"ClipmanServerWindows/Program.cs",
@@ -74,13 +74,13 @@ func TestReleaseLayoutKeepsNativeAndPythonEraNames(t *testing.T) {
 		},
 		{
 			"ClipmanServerWindows/Install-ClipmanServer.ps1",
-			[]string{"clipman.exe", "clipman-cli.exe", "clipmanserver.exe", "Clipman Server.exe"},
-			[]string{"python.exe", "clipman_server.py", "openssl.exe"},
+			[]string{"clipmanserver.exe", "Clipman Server.exe"},
+			[]string{"python.exe", "clipman_server.py", "openssl.exe", "clipman.exe", "clipman-cli.exe"},
 		},
 		{
 			"ClipmanServerMac/Scripts/install.sh",
-			[]string{"clipman", "clipman-cli", "clipmanserver", "Clipman Server.app"},
-			[]string{"python3", "clipman_server.py", "openssl"},
+			[]string{"clipmanserver", "Clipman Server.app"},
+			[]string{"python3", "clipman_server.py", "openssl", `"$SCRIPT_DIR/clipman"`, `"$BIN_DIR/clipman"`},
 		},
 		{
 			"ClipmanServerDocker/Dockerfile.release",

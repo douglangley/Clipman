@@ -15,7 +15,6 @@ if [ -x "$PACKAGE_ROOT/support/clipman-server" ] &&
   SOURCE_ROOT="$PACKAGE_ROOT/support"
   SERVER_SOURCE="$SOURCE_ROOT/clipman-server"
   UPDATER_SOURCE="$SOURCE_ROOT/clipman-server-updater"
-  CLI_SOURCE="$PACKAGE_ROOT/clipman"
 else
   # Python-era combined transition layout. Keep these names until every
   # supported historical updater has crossed the bridge.
@@ -23,7 +22,6 @@ else
   PACKAGE_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
   SERVER_SOURCE="$SOURCE_ROOT/clipman-server-$NATIVE_ARCH"
   UPDATER_SOURCE="$SOURCE_ROOT/clipman-server-updater-$NATIVE_ARCH"
-  CLI_SOURCE=""
 fi
 if [ ! -x "$SERVER_SOURCE" ] || [ ! -x "$UPDATER_SOURCE" ]; then
   echo "Could not find native Clipman Server binaries for $NATIVE_ARCH in this release directory." >&2
@@ -107,12 +105,6 @@ cp "$SERVER_SOURCE" "$APP_DIR/clipman-server"
 chmod 700 "$APP_DIR/clipman-server" 2>/dev/null || true
 cp "$UPDATER_SOURCE" "$APP_DIR/clipman-server-updater"
 chmod 700 "$APP_DIR/clipman-server-updater" 2>/dev/null || true
-
-if [ -n "$CLI_SOURCE" ] && [ -x "$CLI_SOURCE" ]; then
-  cp "$CLI_SOURCE" "$BIN_DIR/clipman"
-  cp "$CLI_SOURCE" "$BIN_DIR/clipman-cli"
-  chmod 700 "$BIN_DIR/clipman" "$BIN_DIR/clipman-cli" 2>/dev/null || true
-fi
 
 if [ -f "$PACKAGE_ROOT/support/Manual.html" ]; then
   cp "$PACKAGE_ROOT/support/Manual.html" "$APP_DIR/Manual.html"
@@ -509,10 +501,6 @@ echo "Clipman Server installed."
 echo "Program: $APP_DIR/clipman-server"
 echo "Launcher: $BIN_DIR/clipman-server"
 echo "Helper: $BIN_DIR/clipmanserver"
-if [ -x "$BIN_DIR/clipman" ]; then
-  echo "Client: $BIN_DIR/clipman"
-  echo "Client compatibility name: $BIN_DIR/clipman-cli"
-fi
 echo "Settings: $CONFIG_FILE"
 echo "Connection details: $CONFIG_DIR/clipman-server-connection.txt"
 echo

@@ -1,17 +1,17 @@
 <#
 .SYNOPSIS
-Installs the Clipman command-line client and Clipman Server for the current user.
+Installs Clipman Server for the current user.
 
 .DESCRIPTION
-Copies the new command names, clipman.exe and clipmanserver.exe, and also keeps
-the Python-era names clipman-cli.exe and Clipman Server.exe as byte-identical
-compatibility aliases. Server settings and databases under LocalAppData are not
-modified.
+Copies clipmanserver.exe and keeps the Python-era Clipman Server.exe name as a
+byte-identical compatibility alias. Server settings and databases under
+LocalAppData are not modified. The separate Clipman CLI installation is not
+changed.
 #>
 [CmdletBinding()]
 param(
     [string]$SourceDirectory = $PSScriptRoot,
-    [string]$InstallDirectory = $(Join-Path $env:LOCALAPPDATA 'Programs\Clipman'),
+    [string]$InstallDirectory = $(Join-Path $env:LOCALAPPDATA 'Programs\Clipman Server'),
     [switch]$NoPath
 )
 
@@ -28,9 +28,8 @@ if ($destination.TrimEnd('\') -eq $source.TrimEnd('\') -or
     throw 'InstallDirectory must be outside the extracted release directory.'
 }
 
-$clipman = Join-Path $source 'clipman.exe'
 $server = Join-Path $source 'clipmanserver.exe'
-foreach ($required in @($clipman, $server)) {
+foreach ($required in @($server)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Required release file is missing: $required"
     }
@@ -51,8 +50,6 @@ function Install-File([string]$Source, [string]$Name) {
     }
 }
 
-Install-File $clipman 'clipman.exe'
-Install-File $clipman 'clipman-cli.exe'
 Install-File $server 'clipmanserver.exe'
 Install-File $server 'Clipman Server.exe'
 
@@ -74,7 +71,7 @@ if (-not $NoPath) {
         }
         catch {
             # Preserve unusual existing PATH entries; they should not prevent
-            # Clipman from being installed or added as a separate entry.
+            # Clipman Server from being installed or added as a separate entry.
             $false
         }
     }
@@ -86,6 +83,6 @@ if (-not $NoPath) {
     }
 }
 
-Write-Output "Installed Clipman commands in $destination"
-Write-Output 'Primary commands: clipman.exe and clipmanserver.exe'
-Write-Output 'Compatibility names: clipman-cli.exe and Clipman Server.exe'
+Write-Output "Installed Clipman Server in $destination"
+Write-Output 'Primary command: clipmanserver.exe'
+Write-Output 'Compatibility name: Clipman Server.exe'

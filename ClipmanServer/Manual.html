@@ -77,7 +77,7 @@
 
   <p>It is a native Go executable on Linux, macOS, and Windows. The Windows EXE and macOS app bundle and supervise the same native server core. Python, Homebrew, and OpenSSL are not required for normal operation. The same server program is used across platforms so the safety model stays consistent: random first-run port, random bearer token, password-scoped database buckets, cheap revision polling, rolling backups, private file permissions where supported, rotating logs, database-ID log redaction, and optional direct TLS.</p>
 
-  <p>Native releases use the same directory pattern as Clipman CLI: <code>windows-amd64</code>, <code>macos-universal</code>, <code>linux-amd64</code>, <code>linux-arm64</code>, and <code>linux-armv7</code>. Each directory is self-contained and includes <code>clipman</code>, <code>clipmanserver</code>, its installer, checksums, documentation, and required support files. The compatibility names <code>clipman-cli</code>, <code>clipman-server</code>, <code>Clipman Server.exe</code>, and <code>Clipman Server.app</code> remain available for existing scripts and Python-era installations.</p>
+  <p>Native releases use the same directory pattern as Clipman CLI: <code>windows-amd64</code>, <code>macos-universal</code>, <code>linux-amd64</code>, <code>linux-arm64</code>, and <code>linux-armv7</code>. Each directory is self-contained and includes <code>clipmanserver</code>, its installer, checksums, documentation, and required server support files. The separate Clipman CLI build remains responsible for <code>clipman-cli</code>. Server compatibility names such as <code>clipman-server</code>, <code>Clipman Server.exe</code>, and <code>Clipman Server.app</code> remain available for existing scripts and Python-era installations.</p>
 
   <h2 id="security">Security Model</h2>
   <p>The server stores raw <code>.clipdb</code> blobs. If you use a Clipman history password, clipboard text remains encrypted on the server. The server still has sensitive responsibilities:</p>
@@ -110,7 +110,7 @@
   <pre><code>cd linux-amd64      # or linux-arm64 / linux-armv7
 sh install.sh</code></pre>
 
-  <p>The combined Python-to-Go transition ZIP retains the older <code>Linux/install-clipman-server.sh</code> path. Native Linux directories also retain <code>install-clipman-server.sh</code> and <code>run-clipman-server.sh</code> as byte-identical aliases for the shorter installer and launcher names. Both layouts preserve the established installed program, launcher, helper, settings, service, and data names.</p>
+  <p>The combined Python-to-Go transition ZIP retains the older <code>Linux/install-clipman-server.sh</code> path. Native Linux directories also retain <code>install-clipman-server.sh</code> and <code>run-clipman-server.sh</code> as byte-identical aliases for the shorter installer and launcher names. Both layouts preserve the established installed program, launcher, helper, settings, service, and data names. Neither server installer installs or changes Clipman CLI.</p>
 
   <p>The installer copies the server into a user-local application folder, creates a launcher, writes first-run settings, and creates importable and plain text connection files:</p>
 
@@ -208,7 +208,7 @@ Readable connection:   ~/.config/clipman-server/clipman-server-connection.txt</c
 
   <p>Clipman Server appears in the Windows notification area. It does not open a console window and does not appear as a normal Alt-Tab window. Right-click the Clipman Server notification-area icon to copy connection details, open settings, open logs, restart the server, enable or disable startup, or quit.</p>
 
-  <p>The Windows EXE contains the native server core and extracts it into <code>%LOCALAPPDATA%\Clipman Server\Runtime</code> when it starts. <code>Clipman Server.exe</code> is included as a byte-identical compatibility name. Run <code>install.ps1</code> to install <code>clipman</code>, <code>clipmanserver</code>, and their older command aliases for the current user.</p>
+  <p>The Windows EXE contains the native server core and extracts it into <code>%LOCALAPPDATA%\Clipman Server\Runtime</code> when it starts. <code>Clipman Server.exe</code> is included as a byte-identical compatibility name. Run <code>install.ps1</code> to install <code>clipmanserver.exe</code> and that server compatibility alias for the current user. It does not install or change Clipman CLI.</p>
 
   <h3>macOS</h3>
   <p>Run:</p>
@@ -217,7 +217,7 @@ Readable connection:   ~/.config/clipman-server/clipman-server-connection.txt</c
 
   <p>Clipman Server appears in the macOS menu bar. It does not keep a Terminal window open and does not appear in the Dock or Command-Tab. Click the Clipman Server menu-bar item to copy connection details, open settings, open logs, restart the server, enable or disable login startup, or quit.</p>
 
-  <p>The macOS app bundles a universal Intel and Apple Silicon native server core in its Resources folder and launches it directly. It requires macOS 13 or newer. Run <code>sh install.sh</code> from <code>macos-universal</code> to install the app and command-line entrypoints. The existing <code>Clipman Server.app</code> name and bundle identifier are unchanged.</p>
+  <p>The macOS app bundles a universal Intel and Apple Silicon native server core in its Resources folder and launches it directly. It requires macOS 13 or newer. Run <code>sh install.sh</code> from <code>macos-universal</code> to install the app and its <code>clipmanserver</code> management command. The existing <code>Clipman Server.app</code> name and bundle identifier are unchanged. The installer does not install or change Clipman CLI.</p>
 
   <h3>Linux</h3>
   <p>For Linux, especially Raspberry Pi or VPS use, prefer the installer described above. For a temporary manual run from the extracted package, use:</p>
