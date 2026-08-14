@@ -1,0 +1,102 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SERVER="$SCRIPT_DIR/support/clipman-server"
+CONFIG_FILE="${CLIPMAN_SERVER_CONFIG:-$SCRIPT_DIR/Settings/clipman-server-settings.json}"
+INSTALLER="$SCRIPT_DIR/install.sh"
+INSTALLED_HELPER="${CLIPMAN_SERVER_INSTALLED_HELPER:-$HOME/.local/bin/clipmanserver}"
+
+if [ "${1:-}" = "install" ]; then
+  [ -f "$INSTALLER" ] || { echo "The installer is missing: $INSTALLER" >&2; exit 1; }
+  shift
+  exec sh "$INSTALLER" "$@"
+fi
+
+# Once the package has been installed, use the installed helper because it
+# knows the selected service manager and custom installation paths.
+if [ "${CLIPMAN_SERVER_PORTABLE:-}" != "1" ] &&
+   [ -x "$INSTALLED_HELPER" ] &&
+   [ "$(CDPATH= cd -- "$(dirname -- "$INSTALLED_HELPER")" && pwd)/$(basename -- "$INSTALLED_HELPER")" != "$SCRIPT_DIR/$(basename -- "$0")" ]; then
+  exec "$INSTALLED_HELPER" "$@"
+fi
+
+if [ ! -x "$SERVER" ]; then
+  echo "The portable Clipman Server core is missing: $SERVER" >&2
+  exit 1
+fi
+
+usage() {
+  cat <<'USAGE'
+Usage: ./clipmanserver <command>
+
+Commands available before installation:
+  install      Install Clipman and Clipman Server for the current user
+  console      Run the portable server in this terminal
+  token        Print the portable server token
+  connection   Refresh the portable connection files
+  setup-link   Create a temporary setup link [minutes] [downloads]
+  cert         Create or renew a private-CA HTTPS certificate
+  fingerprint  Show the private authority SHA-256 fingerprint
+  share-ca     Temporarily share the public certificate authority
+  list         List database buckets
+  list-json    List database buckets as JSON
+  version      Show the packaged server version
+  help         Show this help
+
+Run ./install.sh (or ./clipmanserver install) to enable start, stop, restart,
+updates, and service-manager integration. The installed management command
+keeps the Python-era name: clipmanserver.
+USAGE
+}
+
+run_server() {
+  "$SERVER" --config "$CONFIG_FILE" "$@"
+}
+
+case "${1:-help}" in
+  console)
+    exec "$SERVER" --config "$CONFIG_FILE"
+    ;;
+  token)
+    run_server --show-token
+    ;;
+  connection)
+    run_server --write-connection-info
+    ;;
+  setup-link)
+    run_server --create-setup-link --setup-minutes "${2:-30}" --setup-downloads "${3:-5}"
+    ;;
+  cert)
+    shift
+    run_server --create-tls-certificate "$@"
+    ;;
+  fingerprint)
+    run_server --show-ca-fingerprint
+    ;;
+  share-ca)
+    shift
+    run_server --share-ca "$@"
+    ;;
+  list)
+    run_server --list-databases
+    ;;
+  list-json)
+    run_server --list-databases-json
+    ;;
+  version|--version)
+    "$SERVER" --version
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  start|stop|restart|status|update|check-update|enable-auto-updates|disable-auto-updates|update-status)
+    echo "Install the package before using service command '$1':" >&2
+    echo "  sh $INSTALLER" >&2
+    exit 2
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

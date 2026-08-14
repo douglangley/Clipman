@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+APP="$SCRIPT_DIR/Clipman Server.app"
+CORE="$APP/Contents/Resources/clipman-server"
+
+if [ "${1:-}" = "install" ]; then
+  shift
+  exec sh "$SCRIPT_DIR/install.sh" "$@"
+fi
+if [ ! -x "$CORE" ]; then
+  echo "Clipman Server.app is missing its native Go core." >&2
+  exit 1
+fi
+if [ "$#" -eq 0 ]; then
+  exec open "$APP"
+fi
+exec "$CORE" "$@"

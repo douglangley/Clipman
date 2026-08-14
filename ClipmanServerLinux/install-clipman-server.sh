@@ -8,11 +8,25 @@ case "$(uname -m)" in
   armv7l|armv7*) NATIVE_ARCH=armv7 ;;
   *) echo "Unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
 esac
-SOURCE_ROOT="$SCRIPT_DIR"
-SERVER_SOURCE="$SOURCE_ROOT/clipman-server-$NATIVE_ARCH"
-UPDATER_SOURCE="$SOURCE_ROOT/clipman-server-updater-$NATIVE_ARCH"
+PACKAGE_ROOT="$SCRIPT_DIR"
+if [ -x "$PACKAGE_ROOT/support/clipman-server" ] &&
+   [ -x "$PACKAGE_ROOT/support/clipman-server-updater" ]; then
+  # Native per-platform release layout.
+  SOURCE_ROOT="$PACKAGE_ROOT/support"
+  SERVER_SOURCE="$SOURCE_ROOT/clipman-server"
+  UPDATER_SOURCE="$SOURCE_ROOT/clipman-server-updater"
+  CLI_SOURCE="$PACKAGE_ROOT/clipman"
+else
+  # Python-era combined transition layout. Keep these names until every
+  # supported historical updater has crossed the bridge.
+  SOURCE_ROOT="$SCRIPT_DIR"
+  PACKAGE_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+  SERVER_SOURCE="$SOURCE_ROOT/clipman-server-$NATIVE_ARCH"
+  UPDATER_SOURCE="$SOURCE_ROOT/clipman-server-updater-$NATIVE_ARCH"
+  CLI_SOURCE=""
+fi
 if [ ! -x "$SERVER_SOURCE" ] || [ ! -x "$UPDATER_SOURCE" ]; then
-  echo "Could not find native Clipman Server binaries for $NATIVE_ARCH beside this installer." >&2
+  echo "Could not find native Clipman Server binaries for $NATIVE_ARCH in this release directory." >&2
   exit 1
 fi
 
@@ -94,11 +108,21 @@ chmod 700 "$APP_DIR/clipman-server" 2>/dev/null || true
 cp "$UPDATER_SOURCE" "$APP_DIR/clipman-server-updater"
 chmod 700 "$APP_DIR/clipman-server-updater" 2>/dev/null || true
 
-if [ -f "$SOURCE_ROOT/Manual.html" ]; then
-  cp "$SOURCE_ROOT/Manual.html" "$APP_DIR/Manual.html"
+if [ -n "$CLI_SOURCE" ] && [ -x "$CLI_SOURCE" ]; then
+  cp "$CLI_SOURCE" "$BIN_DIR/clipman"
+  cp "$CLI_SOURCE" "$BIN_DIR/clipman-cli"
+  chmod 700 "$BIN_DIR/clipman" "$BIN_DIR/clipman-cli" 2>/dev/null || true
 fi
-if [ -f "$SOURCE_ROOT/LICENSE.txt" ]; then
-  cp "$SOURCE_ROOT/LICENSE.txt" "$APP_DIR/LICENSE.txt"
+
+if [ -f "$PACKAGE_ROOT/support/Manual.html" ]; then
+  cp "$PACKAGE_ROOT/support/Manual.html" "$APP_DIR/Manual.html"
+elif [ -f "$PACKAGE_ROOT/Manual.html" ]; then
+  cp "$PACKAGE_ROOT/Manual.html" "$APP_DIR/Manual.html"
+fi
+if [ -f "$PACKAGE_ROOT/support/LICENSE.txt" ]; then
+  cp "$PACKAGE_ROOT/support/LICENSE.txt" "$APP_DIR/LICENSE.txt"
+elif [ -f "$PACKAGE_ROOT/LICENSE.txt" ]; then
+  cp "$PACKAGE_ROOT/LICENSE.txt" "$APP_DIR/LICENSE.txt"
 fi
 
 cat > "$BIN_DIR/clipman-server" <<EOF
@@ -420,7 +444,7 @@ case "\${1:-help}" in
     shift 2>/dev/null || true
     "\$LAUNCHER" --share-ca "\$@"
     ;;
-  version)
+  version|--version)
     "\$LAUNCHER" --version
     ;;
   check-update)
@@ -485,6 +509,10 @@ echo "Clipman Server installed."
 echo "Program: $APP_DIR/clipman-server"
 echo "Launcher: $BIN_DIR/clipman-server"
 echo "Helper: $BIN_DIR/clipmanserver"
+if [ -x "$BIN_DIR/clipman" ]; then
+  echo "Client: $BIN_DIR/clipman"
+  echo "Client compatibility name: $BIN_DIR/clipman-cli"
+fi
 echo "Settings: $CONFIG_FILE"
 echo "Connection details: $CONFIG_DIR/clipman-server-connection.txt"
 echo

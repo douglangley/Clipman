@@ -1,6 +1,6 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-13 (package mode, historical fixtures, and forced rollback exercised)
+Last updated: 2026-08-13 (native per-platform release layout implemented locally)
 
 Branch: `go-server`
 
@@ -37,6 +37,7 @@ Do not discard or absorb unrelated untracked files shown by `git status`. They p
 - Manifest v2 parsing and OS/architecture artifact selection, including same-version Python-to-Go migration selection.
 - HTTPS-only bounded downloads, SHA-256 verification, archive path/symlink/count/expanded-size defenses, staged replacement, service coordination, health checking, and rollback.
 - Universal macOS Swift wrapper and Go core packaging with transactional app replacement and post-relaunch health rollback.
+- CLI-style release directory with self-contained `windows-amd64`, `macos-universal`, `linux-amd64`, `linux-arm64`, and `linux-armv7` trees. Each exposes `clipman` and `clipmanserver`, carries platform installers/support files, and retains Python-era command, wrapper, installed-path, and transition-asset names.
 
 ## Verification completed
 
@@ -50,6 +51,7 @@ Do not discard or absorb unrelated untracked files shown by `git status`. They p
 - Unit/HTTP coverage for administration, setup-link concurrency and limits, certificate renewal without CA replacement, malicious archive rejection, digest/architecture selection, same-version migration selection, and failed-health rollback with service restart.
 - Historical Python compatibility suite: 57 tests passed with three platform-specific skips on Windows after updating its Docker assertion for the native entrypoint.
 - Phase 7 verification rerun: `go test ./...`, `go vet ./...`, Python bytecode compilation, and `git diff --check` passed.
+- Release-layout verification: every Go CLI/server/updater target cross-built; the Windows wrapper compiled with its embedded Go core; native Windows asset preference and combined-ZIP fallback passed; the isolated Windows installer produced byte-identical new/compatibility aliases; the full Go server and CLI test/vet suites passed; and 61 Python compatibility tests passed with four platform skips on Windows.
 
 ## Important remaining work
 

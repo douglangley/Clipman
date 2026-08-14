@@ -1014,12 +1014,13 @@ namespace ClipmanServerWrapper
                 DownloadFile(zipUrl, zip);
                 VerifySha256Digest(zip, expectedDigest);
                 ZipFile.ExtractToDirectory(zip, stage);
-                var sourceExe = Directory.GetFiles(stage, "Clipman Server.exe", SearchOption.AllDirectories)
-                    .FirstOrDefault(path => path.IndexOf(Path.DirectorySeparatorChar + "Windows" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) >= 0)
+                var sourceExe = Directory.GetFiles(stage, "clipmanserver.exe", SearchOption.AllDirectories).FirstOrDefault()
+                    ?? Directory.GetFiles(stage, "Clipman Server.exe", SearchOption.AllDirectories)
+                        .FirstOrDefault(path => path.IndexOf(Path.DirectorySeparatorChar + "Windows" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) >= 0)
                     ?? Directory.GetFiles(stage, "Clipman Server.exe", SearchOption.AllDirectories).FirstOrDefault();
                 if (string.IsNullOrWhiteSpace(sourceExe))
                 {
-                    throw new InvalidOperationException("The server update ZIP did not contain Windows\\Clipman Server.exe.");
+                    throw new InvalidOperationException("The server update ZIP did not contain clipmanserver.exe or the compatible Clipman Server.exe name.");
                 }
 
                 CopyFileWithRetry(sourceExe, exePath);
@@ -1083,13 +1084,17 @@ namespace ClipmanServerWrapper
 
         private static GitHubAsset FindServerAsset(GitHubRelease release, string version)
         {
-            var expectedName = "ClipmanServer-" + version + ".zip";
-            return release == null || release.Assets == null
-                ? null
-                : release.Assets.FirstOrDefault(a =>
+            if (release == null || release.Assets == null) return null;
+            var nativeName = "ClipmanServer-Windows-x64-" + version + ".zip";
+            var transitionName = "ClipmanServer-" + version + ".zip";
+            return release.Assets.FirstOrDefault(a =>
                     a != null &&
                     !string.IsNullOrWhiteSpace(a.BrowserDownloadUrl) &&
-                    string.Equals(a.Name, expectedName, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(a.Name, nativeName, StringComparison.OrdinalIgnoreCase))
+                ?? release.Assets.FirstOrDefault(a =>
+                    a != null &&
+                    !string.IsNullOrWhiteSpace(a.BrowserDownloadUrl) &&
+                    string.Equals(a.Name, transitionName, StringComparison.OrdinalIgnoreCase));
         }
 
         private static WebClient GitHubClient()

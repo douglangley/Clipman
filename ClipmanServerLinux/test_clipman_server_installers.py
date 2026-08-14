@@ -226,6 +226,37 @@ class LinuxInstallerTests(unittest.TestCase):
         self._run([str(helper), "update", "--yes"], update_environment)
         self.assertEqual("systemd", updater_log.read_text(encoding="utf-8"))
 
+    def test_native_release_layout_installs_new_and_compatibility_names(self) -> None:
+        target = self.root / "native-release" / "linux-amd64"
+        support = target / "support"
+        support.mkdir(parents=True)
+        shutil.copy2(ROOT / "install-clipman-server.sh", target / "install.sh")
+        shutil.copy2(self.linux / "clipman-server-amd64", support / "clipman-server")
+        shutil.copy2(self.linux / "clipman-server-updater-amd64", support / "clipman-server-updater")
+        self._write_executable(
+            target / "clipman",
+            """
+            #!/usr/bin/env sh
+            printf 'clipman test client\\n'
+            """,
+        )
+        (support / "Manual.html").write_text("native manual", encoding="utf-8")
+        (support / "LICENSE.txt").write_text("native license", encoding="utf-8")
+
+        environment = self._base_environment()
+        environment["CLIPMAN_SERVER_INIT_SYSTEM"] = "none"
+        self._run(["sh", str(target / "install.sh")], environment)
+
+        app = Path(environment["CLIPMAN_SERVER_APP_DIR"])
+        binary = Path(environment["CLIPMAN_SERVER_BIN_DIR"])
+        self.assertTrue((app / "clipman-server").is_file())
+        self.assertTrue((app / "clipman-server-updater").is_file())
+        self.assertEqual("native manual", (app / "Manual.html").read_text(encoding="utf-8"))
+        self.assertTrue((binary / "clipmanserver").is_file())
+        self.assertTrue((binary / "clipman-server").is_file())
+        self.assertEqual((binary / "clipman").read_bytes(), (binary / "clipman-cli").read_bytes())
+        self.assertEqual("clipman test client", self._run([str(binary / "clipman")], environment).stdout.strip())
+
     def test_system_runit_helper_preserves_service_and_rejects_conflicting_link(self) -> None:
         self._write_executable(
             self.fake_bin / "id",

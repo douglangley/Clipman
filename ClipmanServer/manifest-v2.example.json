@@ -6,7 +6,7 @@
     {
       "os": "linux",
       "architecture": "amd64",
-      "path": "linux-amd64/clipman-server",
+      "path": "support/clipman-server",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "executable": true
     }

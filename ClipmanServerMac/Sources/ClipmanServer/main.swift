@@ -696,7 +696,7 @@ enum ServerUpdateService {
             try verifySHA256Digest(of: zip, expected: expectedDigest)
             try run("/usr/bin/unzip", ["-q", zip.path, "-d", stage.path])
             guard let sourceApp = findMacServerApp(in: stage) else {
-                throw NSError(domain: "ClipmanServerUpdate", code: 1, userInfo: [NSLocalizedDescriptionKey: "The server update ZIP did not contain macOS/Clipman Server.app."])
+                throw NSError(domain: "ClipmanServerUpdate", code: 1, userInfo: [NSLocalizedDescriptionKey: "The server update ZIP did not contain Clipman Server.app in the native or compatible transition layout."])
             }
             try validateUpdateApp(sourceApp)
             let installedApp = URL(fileURLWithPath: appPath)
