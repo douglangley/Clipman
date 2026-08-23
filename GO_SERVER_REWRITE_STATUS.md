@@ -1,6 +1,6 @@
 # Go Server Rewrite Resume Status
 
-Last updated: 2026-08-14 (upstream server 2.6.3/2.6.4 compatibility behavior ported to the Go core)
+Last updated: 2026-08-23 (current macOS universal development package rebuilt and verified)
 
 Branch: `go-server`
 
@@ -112,6 +112,8 @@ The Swift wrapper launches and routes utilities directly to the bundled Go core.
 
 The packaged core passed live macOS checks for health, authenticated conditional `PUT`, `HEAD`, `GET`, backup listing, legacy backup/restore scoped errors, inventory, guarded deletion, setup-link creation/revocation, private-CA generation and fingerprinting, direct HTTPS, and one-download CA sharing. First-run connection-file creation, setup-base-URL validation, and the legacy backup routes gained regression tests. `go test ./...`, `go vet ./...`, `go test -race ./...`, both Swift architecture type checks, shell syntax checks, and `git diff --check` pass.
 
+On 2026-08-23, the current branch rebuilt the declared version 2.6.2 with Go 1.26.5 and Apple Swift 6.3.3. The produced `ClipmanServer-macOS-universal-2.6.2.zip` was extracted and independently checked: wrapper and embedded core versions were both 2.6.2, both binaries contained `x86_64` and `arm64`, the deployment floor was macOS 13.0, strict nested-signature verification passed, and ZIP integrity passed. The artifact was 5,861,992 bytes with SHA-256 `e22c861a8be95f8650a8942a4593876e255b236e9c4f5e08ca8397e227fa2215`. It is ad-hoc signed for development; it has not passed Developer ID signing, notarization, Gatekeeper, clean-machine UI/login-item testing, Intel execution, or an installed-app update/forced-rollback run.
+
 ## Recommended next action
 
 Continue Phase 7 on Linux by materializing the three byte-pinned historical package layouts, executing each real two-cycle bridge path into a native archive, and running package mode after migration and Python rollback. Extend the same package-mode before/update/rollback contract to systemd, runit, and externally managed installations. On macOS, run the packaged CLI corpus and installed-app update/forced-rollback flow on clean Intel and Apple Silicon machines, then complete Developer ID signing, notarization, and Gatekeeper assessment. No bridge or native release has been published.
@@ -124,6 +126,6 @@ git status --short
 git log -3 --oneline
 ```
 
-The native macOS checkpoint commit follows `027fbef`. Untracked user files must remain untouched.
+This documentation checkpoint follows `df94166`. Untracked user files must remain untouched.
 
 The authoritative design and phase exit criteria remain in `GO_SERVER_REWRITE_PLAN.md`; this file is the concise interruption/recovery checkpoint.

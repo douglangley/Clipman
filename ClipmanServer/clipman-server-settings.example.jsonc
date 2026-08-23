@@ -26,7 +26,7 @@
   "AdvertiseHost": "",
 
   // TCP port for the server. A fresh settings file gets a random high port.
-  "Port": 49152,
+  "Port": 49151,
 
   // The server stores password-scoped database buckets next to this path.
   //
